@@ -1,19 +1,8 @@
-﻿crds:
-  enabled: true
-  keep: true
+﻿cert-manager:
+  crds:
+    enabled: true
+    keep: true
 
-replicaCount: 2
-
-podDisruptionBudget:
-  enabled: true
-  minAvailable: 1
-
-topologySpreadConstraints:
-  - maxSkew: 1
-    topologyKey: kubernetes.io/hostname
-    whenUnsatisfiable: ScheduleAnyway
-
-webhook:
   replicaCount: 2
 
   podDisruptionBudget:
@@ -25,14 +14,26 @@ webhook:
       topologyKey: kubernetes.io/hostname
       whenUnsatisfiable: ScheduleAnyway
 
-cainjector:
-  replicaCount: 2
+  webhook:
+    replicaCount: 2
 
-  podDisruptionBudget:
-    enabled: true
-    minAvailable: 1
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
 
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: kubernetes.io/hostname
-      whenUnsatisfiable: ScheduleAnyway
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+
+  cainjector:
+    replicaCount: 2
+
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
