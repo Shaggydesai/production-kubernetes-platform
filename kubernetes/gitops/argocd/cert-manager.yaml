@@ -1,0 +1,25 @@
+﻿apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-cert-manager
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
+    targetRevision: feature/ubuntu-template
+    path: kubernetes/platform/cert-manager
+    directory:
+      recurse: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
