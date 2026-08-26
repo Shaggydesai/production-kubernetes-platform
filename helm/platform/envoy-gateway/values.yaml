@@ -1,20 +1,21 @@
-﻿crds:
-  enabled: true
+﻿gateway-helm:
+  crds:
+    enabled: true
 
-podDisruptionBudget:
-  minAvailable: 1
+  podDisruptionBudget:
+    minAvailable: 1
 
-deployment:
-  replicas: 2
+  deployment:
+    replicas: 2
 
-  pod:
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: ScheduleAnyway
-        labelSelector:
-          matchLabels:
-            control-plane: envoy-gateway
+    pod:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              control-plane: envoy-gateway
 
-service:
-  type: ClusterIP
+  service:
+    type: ClusterIP
