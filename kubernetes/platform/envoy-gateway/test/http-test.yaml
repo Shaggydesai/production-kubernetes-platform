@@ -1,0 +1,57 @@
+﻿apiVersion: v1
+kind: Namespace
+metadata:
+  name: envoy-gateway-test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-test
+  namespace: envoy-gateway-test
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: http-test
+  template:
+    metadata:
+      labels:
+        app: http-test
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27
+          ports:
+            - name: http
+              containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-test
+  namespace: envoy-gateway-test
+spec:
+  selector:
+    app: http-test
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-test
+  namespace: envoy-gateway-test
+spec:
+  parentRefs:
+    - name: platform-gateway
+      namespace: envoy-gateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: http-test
+          port: 80
