@@ -1,0 +1,23 @@
+﻿apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-envoy-gateway
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
+    targetRevision: feature/ubuntu-template
+    path: kubernetes/platform/envoy-gateway
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: envoy-gateway-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
