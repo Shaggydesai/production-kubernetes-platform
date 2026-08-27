@@ -1,0 +1,12 @@
+﻿apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: demo-app-tls
+  namespace: envoy-gateway-system
+spec:
+  secretName: demo-app-tls
+  issuerRef:
+    name: platform-ca
+    kind: ClusterIssuer
+  dnsNames:
+    - demo.platform.internal
