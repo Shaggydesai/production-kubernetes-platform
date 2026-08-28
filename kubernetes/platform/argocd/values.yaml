@@ -1,4 +1,4 @@
-﻿argo-cd:
+argo-cd:
   crds:
     install: true
     keep: true
@@ -41,6 +41,13 @@
     replicas: 1
     extraArgs:
       - --insecure
+
+  route:
+    enabled: true
+    gateway:
+      name: platform-gateway
+      namespace: envoy-gateway-system
+      sectionName: https
 
   repoServer:
     replicas: 1
