@@ -39,6 +39,8 @@
 
   server:
     replicas: 1
+    extraArgs:
+      - --insecure
 
   repoServer:
     replicas: 1
