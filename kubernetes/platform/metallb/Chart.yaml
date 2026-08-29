@@ -1,0 +1,11 @@
+apiVersion: v2
+name: metallb
+description: MetalLB configuration for the production Kubernetes platform
+type: application
+version: 0.1.0
+appVersion: "0.16.1"
+
+dependencies:
+  - name: metallb
+    version: 0.16.1
+    repository: https://metallb.github.io/metallb

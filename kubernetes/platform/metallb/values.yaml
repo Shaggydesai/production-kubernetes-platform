@@ -1,0 +1,22 @@
+metallb:
+  controller:
+    enabled: true
+
+  speaker:
+    enabled: true
+
+ipAddressPool:
+  enabled: true
+  name: platform-pool
+  namespace: metallb-system
+  addresses:
+    - 192.168.75.240-192.168.75.250
+  autoAssign: true
+  avoidBuggyIPs: false
+
+l2Advertisement:
+  enabled: true
+  name: platform-l2
+  namespace: metallb-system
+  ipAddressPools:
+    - platform-pool
