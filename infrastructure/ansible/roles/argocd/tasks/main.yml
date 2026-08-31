@@ -1,0 +1,28 @@
+---
+- name: Add Argo Helm repository
+  ansible.builtin.command:
+    cmd: helm repo add {{ argocd_chart_repo_name }} {{ argocd_chart_repo_url }}
+  register: argocd_repo_add
+  changed_when: "'already exists' not in (argocd_repo_add.stdout | default(''))"
+
+- name: Update Helm repositories
+  ansible.builtin.command:
+    cmd: helm repo update
+
+- name: Render Argo CD Helm values
+  ansible.builtin.template:
+    src: values.yaml.j2
+    dest: /tmp/argocd-values.yaml
+    mode: '0644'
+
+- name: Install Argo CD with Helm
+  ansible.builtin.command:
+    cmd: >
+      helm upgrade --install {{ argocd_release_name }}
+      {{ argocd_chart_name }}
+      --namespace {{ argocd_namespace }}
+      --create-namespace
+      --version {{ argocd_chart_version }}
+      --values /tmp/argocd-values.yaml
+      --wait
+      --timeout 10m

@@ -1,0 +1,5 @@
+all:
+  hosts:
+    k8s-cp01:
+      ansible_host: k8s-cp01
+      ansible_connection: local

@@ -1,0 +1,7 @@
+---
+- name: Install Argo CD
+  hosts: k8s-cp01
+  become: false
+
+  roles:
+    - argocd
