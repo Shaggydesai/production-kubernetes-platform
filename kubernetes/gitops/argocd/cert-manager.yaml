@@ -1,4 +1,4 @@
-﻿apiVersion: argoproj.io/v1alpha1
+apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-cert-manager
@@ -10,8 +10,8 @@ spec:
     repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
     targetRevision: feature/ubuntu-template
     path: kubernetes/platform/cert-manager
-    directory:
-      recurse: true
+    helm:
+      releaseName: cert-manager
 
   destination:
     server: https://kubernetes.default.svc

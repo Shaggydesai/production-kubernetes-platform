@@ -10,6 +10,8 @@ spec:
     repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
     targetRevision: feature/ubuntu-template
     path: kubernetes/platform/metallb
+    helm:
+      releaseName: metallb
 
   destination:
     server: https://kubernetes.default.svc
