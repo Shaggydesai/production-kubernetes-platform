@@ -31,3 +31,9 @@ kube-prometheus-stack:
       existingSecret: "grafana-admin-credentials"
       userKey: admin-user
       passwordKey: admin-password
+    additionalDataSources:
+      - name: Loki
+        type: loki
+        url: http://loki-stack.monitoring.svc:3100
+        access: proxy
+        isDefault: false    
