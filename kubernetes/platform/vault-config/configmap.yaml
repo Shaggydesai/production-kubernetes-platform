@@ -40,4 +40,5 @@ data:
     echo "Vault configuration complete."
 
     echo "Seeding Grafana admin credentials..."
-    vault kv put secret/grafana admin-user=admin admin-password=$(openssl rand -base64 20)
+    GRAFANA_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
+    vault kv put secret/grafana admin-user=admin admin-password="$GRAFANA_PASSWORD"
