@@ -1,0 +1,10 @@
+apiVersion: v2
+name: loki-stack
+description: Platform wrapper chart for Loki (logs) and Promtail (log shipper)
+type: application
+version: 0.1.0
+appVersion: "2.10.2"
+dependencies:
+  - name: loki-stack
+    version: "2.10.2"
+    repository: "https://grafana.github.io/helm-charts"
