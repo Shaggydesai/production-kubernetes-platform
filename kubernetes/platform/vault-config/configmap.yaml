@@ -38,3 +38,6 @@ data:
     vault kv put secret/demo-app username=admin password=supersecret123
 
     echo "Vault configuration complete."
+
+    echo "Seeding Grafana admin credentials..."
+    vault kv put secret/grafana admin-user=admin admin-password=$(openssl rand -base64 20)
