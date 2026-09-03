@@ -1,0 +1,9 @@
+longhorn:
+  defaultSettings:
+    defaultDataPath: /var/lib/longhorn
+    replicaSoftAntiAffinity: true
+  persistence:
+    defaultClassReplicaCount: 2
+  csi:
+    attacherReplicaCount: 2
+    provisionerReplicaCount: 2
