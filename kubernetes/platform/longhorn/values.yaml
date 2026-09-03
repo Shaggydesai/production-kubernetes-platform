@@ -7,3 +7,5 @@ longhorn:
   csi:
     attacherReplicaCount: 2
     provisionerReplicaCount: 2
+  preUpgradeChecker:
+    jobEnabled: false    
