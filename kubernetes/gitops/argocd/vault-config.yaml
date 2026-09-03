@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-vault-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
+    targetRevision: feature/ubuntu-template
+    path: kubernetes/platform/vault-config
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-configure
+  namespace: vault
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: vault-configure
+          image: hashicorp/vault:1.19.0
+          command: ["/bin/sh", "/scripts/configure.sh"]
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+            - name: root-token
+              mountPath: /vault/root-token
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: vault-config-script
+            defaultMode: 0755
+        - name: root-token
+          secret:
+            secretName: vault-root-token
