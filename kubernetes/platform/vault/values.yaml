@@ -1,0 +1,33 @@
+vault:
+  server:
+    standalone:
+      enabled: false
+    ha:
+      enabled: true
+      replicas: 1
+      raft:
+        enabled: true
+        setNodeId: true
+        config: |
+          ui = true
+          listener "tcp" {
+            address = "[::]:8200"
+            cluster_address = "[::]:8201"
+            tls_disable = 1
+          }
+          storage "raft" {
+            path = "/vault/data"
+          }
+          service_registration "kubernetes" {}
+    dataStorage:
+      enabled: true
+      size: 5Gi
+      storageClass: longhorn
+    auditStorage:
+      enabled: true
+      size: 2Gi
+      storageClass: longhorn
+  injector:
+    enabled: false
+  ui:
+    enabled: true
