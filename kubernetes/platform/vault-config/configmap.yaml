@@ -42,3 +42,8 @@ data:
     echo "Seeding Grafana admin credentials..."
     GRAFANA_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
     vault kv put secret/grafana admin-user=admin admin-password="$GRAFANA_PASSWORD"
+
+    echo "Seeding PostgreSQL credentials..."
+    PG_ADMIN_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
+    PG_USER_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
+    vault kv put secret/postgresql postgres-password="$PG_ADMIN_PASSWORD" password="$PG_USER_PASSWORD"

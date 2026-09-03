@@ -1,0 +1,10 @@
+apiVersion: v2
+name: postgresql
+description: Platform wrapper chart for PostgreSQL (backing store for taskflow-api)
+type: application
+version: 0.1.0
+appVersion: "16.4.0"
+dependencies:
+  - name: postgresql
+    version: "15.5.20"
+    repository: "https://charts.bitnami.com/bitnami"

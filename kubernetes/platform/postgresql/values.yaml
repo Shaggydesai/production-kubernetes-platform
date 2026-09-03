@@ -1,0 +1,13 @@
+postgresql:
+  auth:
+    username: taskflow
+    database: taskflow
+    existingSecret: "postgresql-credentials"
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+  primary:
+    persistence:
+      enabled: true
+      storageClass: longhorn
+      size: 5Gi
