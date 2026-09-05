@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/Shaggydesai/production-kubernetes-platform/apps/taskflow-api/internal/config"
 	"github.com/Shaggydesai/production-kubernetes-platform/apps/taskflow-api/internal/db"
+	"github.com/Shaggydesai/production-kubernetes-platform/apps/taskflow-api/internal/handlers"
+	"github.com/Shaggydesai/production-kubernetes-platform/apps/taskflow-api/internal/middleware"
 )
 
 func main() {
@@ -25,9 +27,13 @@ func main() {
 	}
 	defer pool.Close()
 
+	authHandler := &handlers.AuthHandler{DB: pool, JWTSecret: cfg.JWTSecret}
+	projectHandler := &handlers.ProjectHandler{DB: pool}
+	taskHandler := &handlers.TaskHandler{DB: pool}
+
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
+	r.Use(chimiddleware.Logger)
+	r.Use(chimiddleware.Recoverer)
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -47,6 +53,28 @@ func main() {
 	})
 
 	r.Handle("/metrics", promhttp.Handler())
+
+	r.Post("/api/register", authHandler.Register)
+	r.Post("/api/login", authHandler.Login)
+
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.RequireAuth(cfg.JWTSecret))
+
+		r.Route("/api/projects", func(r chi.Router) {
+			r.Post("/", projectHandler.Create)
+			r.Get("/", projectHandler.List)
+			r.Get("/{id}", projectHandler.Get)
+			r.Delete("/{id}", projectHandler.Delete)
+
+			r.Route("/{projectID}/tasks", func(r chi.Router) {
+				r.Post("/", taskHandler.Create)
+				r.Get("/", taskHandler.ListByProject)
+			})
+		})
+
+		r.Patch("/api/tasks/{id}/status", taskHandler.UpdateStatus)
+		r.Delete("/api/tasks/{id}", taskHandler.Delete)
+	})
 
 	log.Printf("taskflow-api listening on :%s", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
