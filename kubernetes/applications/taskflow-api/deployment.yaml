@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: taskflow-api
-          image: ghcr.io/shaggydesai/taskflow-api:latest
+          image: ghcr.io/shaggydesai/taskflow-api:d6ff221
           ports:
             - containerPort: 8080
           env:
