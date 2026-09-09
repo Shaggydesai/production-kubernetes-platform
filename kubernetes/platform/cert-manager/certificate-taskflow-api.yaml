@@ -1,0 +1,12 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: taskflow-api-tls
+  namespace: envoy-gateway-system
+spec:
+  secretName: taskflow-api-tls
+  issuerRef:
+    name: platform-ca
+    kind: ClusterIssuer
+  dnsNames:
+    - taskflow.platform.internal
