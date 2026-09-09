@@ -21,11 +21,11 @@ data:
       kubernetes_host="https://kubernetes.default.svc:443"
 
     echo "Writing external-secrets policy..."
-    vault policy write external-secrets-policy - <<EOF
+    vault policy write external-secrets-policy - <<POLICY_EOF
     path "secret/data/*" {
       capabilities = ["read"]
     }
-    EOF
+    POLICY_EOF
 
     echo "Binding role to vault-auth ServiceAccount..."
     vault write auth/kubernetes/role/external-secrets-role \
@@ -34,20 +34,36 @@ data:
       policies=external-secrets-policy \
       ttl=1h
 
-    echo "Seeding demo secret..."
-    vault kv put secret/demo-app username=admin password=supersecret123
+    echo "Seeding demo secret (idempotent)..."
+    if ! vault kv get secret/demo-app >/dev/null 2>&1; then
+      vault kv put secret/demo-app username=admin password=supersecret123
+    else
+      echo "secret/demo-app already exists, skipping"
+    fi
+
+    echo "Seeding Grafana admin credentials (idempotent)..."
+    if ! vault kv get secret/grafana >/dev/null 2>&1; then
+      GRAFANA_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
+      vault kv put secret/grafana admin-user=admin admin-password="$GRAFANA_PASSWORD"
+    else
+      echo "secret/grafana already exists, skipping"
+    fi
+
+    echo "Seeding PostgreSQL credentials (idempotent)..."
+    if ! vault kv get secret/postgresql >/dev/null 2>&1; then
+      PG_ADMIN_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
+      PG_USER_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
+      vault kv put secret/postgresql postgres-password="$PG_ADMIN_PASSWORD" password="$PG_USER_PASSWORD"
+    else
+      echo "secret/postgresql already exists, skipping"
+    fi
+
+    echo "Seeding taskflow-api JWT secret (idempotent)..."
+    if ! vault kv get secret/taskflow-api >/dev/null 2>&1; then
+      JWT_SECRET=$(vault write -f -field=random_bytes sys/tools/random/32 format=base64)
+      vault kv put secret/taskflow-api jwt-secret="$JWT_SECRET"
+    else
+      echo "secret/taskflow-api already exists, skipping"
+    fi
 
     echo "Vault configuration complete."
-
-    echo "Seeding Grafana admin credentials..."
-    GRAFANA_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
-    vault kv put secret/grafana admin-user=admin admin-password="$GRAFANA_PASSWORD"
-
-    echo "Seeding PostgreSQL credentials..."
-    PG_ADMIN_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
-    PG_USER_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
-    vault kv put secret/postgresql postgres-password="$PG_ADMIN_PASSWORD" password="$PG_USER_PASSWORD"
-
-    echo "Seeding taskflow-api JWT secret..."
-    JWT_SECRET=$(vault write -f -field=random_bytes sys/tools/random/32 format=base64)
-    vault kv put secret/taskflow-api jwt-secret="$JWT_SECRET"
