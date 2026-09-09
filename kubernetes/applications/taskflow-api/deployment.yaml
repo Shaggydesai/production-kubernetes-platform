@@ -13,6 +13,8 @@ spec:
       labels:
         app: taskflow-api
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: taskflow-api
           image: ghcr.io/shaggydesai/taskflow-api:d6ff221
