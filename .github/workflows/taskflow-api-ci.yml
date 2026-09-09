@@ -8,7 +8,7 @@ on:
       - '.github/workflows/taskflow-api-ci.yml'
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/taskflow-api
+  IMAGE_NAME: ghcr.io/shaggydesai/taskflow-api
 
 jobs:
   test:
