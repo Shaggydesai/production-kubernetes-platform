@@ -1,0 +1,10 @@
+apiVersion: v2
+name: minio
+description: Platform wrapper chart for MinIO (S3-compatible object storage, Velero backup target)
+type: application
+version: 0.1.0
+appVersion: "2024.x"
+dependencies:
+  - name: minio
+    version: "5.4.0"
+    repository: "https://charts.min.io/"

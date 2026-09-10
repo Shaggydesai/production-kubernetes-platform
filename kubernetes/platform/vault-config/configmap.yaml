@@ -66,4 +66,14 @@ data:
       echo "secret/taskflow-api already exists, skipping"
     fi
 
+    echo "Seeding MinIO credentials (idempotent)..."
+    if ! vault kv get secret/minio >/dev/null 2>&1; then
+      MINIO_ROOT_USER="minioadmin"
+      MINIO_ROOT_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
+      vault kv put secret/minio rootUser="$MINIO_ROOT_USER" rootPassword="$MINIO_ROOT_PASSWORD"
+    else
+      echo "secret/minio already exists, skipping"
+    fi
+
     echo "Vault configuration complete."
+

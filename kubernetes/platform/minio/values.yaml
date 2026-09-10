@@ -1,0 +1,14 @@
+minio:
+  mode: standalone
+  persistence:
+    enabled: true
+    storageClass: longhorn
+    size: 20Gi
+  existingSecret: minio-credentials
+  buckets:
+    - name: velero-backups
+      policy: none
+      purge: false
+  resources:
+    requests:
+      memory: 256Mi
