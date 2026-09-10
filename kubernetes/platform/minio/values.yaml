@@ -2,7 +2,7 @@ minio:
   mode: standalone
   persistence:
     enabled: true
-    storageClass: longhorn
+    storageClass: longhorn-single-replica
     size: 5Gi
   existingSecret: minio-credentials
   buckets:
