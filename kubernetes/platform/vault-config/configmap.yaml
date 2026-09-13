@@ -75,16 +75,14 @@ data:
       echo "secret/minio already exists, skipping"
     fi
 
-        echo "Seeding Velero MinIO credentials (idempotent)..."
+    echo "Seeding Velero MinIO credentials (idempotent)..."
     if ! vault kv get secret/velero >/dev/null 2>&1; then
       MINIO_ROOT_USER=$(vault kv get -field=rootUser secret/minio)
       MINIO_ROOT_PASSWORD=$(vault kv get -field=rootPassword secret/minio)
-      vault kv put secret/velero cloud="[default]
-aws_access_key_id=${MINIO_ROOT_USER}
-aws_secret_access_key=${MINIO_ROOT_PASSWORD}"
+      CLOUD_CREDS=$(printf '[default]\naws_access_key_id=%s\naws_secret_access_key=%s' "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD")
+      vault kv put secret/velero cloud="$CLOUD_CREDS"
     else
       echo "secret/velero already exists, skipping"
     fi
-
     echo "Vault configuration complete."
 
