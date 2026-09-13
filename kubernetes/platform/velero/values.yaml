@@ -1,4 +1,8 @@
 velero:
+  kubectl:
+    image:
+      repository: docker.io/bitnamilegacy/kubectl
+      tag: "1.32"
   credentials:
     useSecret: true
     existingSecret: velero-credentials
