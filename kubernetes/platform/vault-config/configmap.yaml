@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: vault-config-script
   namespace: vault
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-2"
 data:
   configure.sh: |
     #!/bin/sh
