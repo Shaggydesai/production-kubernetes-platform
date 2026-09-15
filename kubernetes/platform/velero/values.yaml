@@ -8,6 +8,7 @@ velero:
     existingSecret: velero-credentials
 
   configuration:
+    defaultVolumesToFsBackup: true
     backupStorageLocation:
       - name: default
         provider: aws
