@@ -1,6 +1,7 @@
 loki-stack:
   loki:
     enabled: true
+    isDefault: false
     persistence:
       enabled: true
       storageClassName: longhorn
