@@ -1,4 +1,4 @@
-﻿{{- if .Values.route.enabled }}
+{{- if index .Values "argo-cd" "route" "enabled" }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -6,9 +6,9 @@ metadata:
   namespace: argocd
 spec:
   parentRefs:
-    - name: {{ .Values.route.gateway.name }}
-      namespace: {{ .Values.route.gateway.namespace }}
-      sectionName: {{ .Values.route.gateway.sectionName }}
+    - name: {{ index .Values "argo-cd" "route" "gateway" "name" }}
+      namespace: {{ index .Values "argo-cd" "route" "gateway" "namespace" }}
+      sectionName: {{ index .Values "argo-cd" "route" "gateway" "sectionName" }}
 
   hostnames:
     - {{ index .Values "argo-cd" "global" "domain" }}
@@ -19,6 +19,6 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: platform-argocd-server
+        - name: argocd-server
           port: 80
 {{- end }}
