@@ -11,6 +11,35 @@ kube-prometheus-stack:
               requests:
                 storage: 10Gi
 
+  prometheus-node-exporter:
+    extraArgs:
+      # chart defaults (must be repeated: Helm replaces lists)
+      - '--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)'
+      - '--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$'
+      # host's /var/lib/node_exporter via the existing /host/root mount
+      - '--collector.textfile.directory=/host/root/var/lib/node_exporter/textfile_collector'
+                
+  additionalPrometheusRulesMap:
+    etcd-backup:
+      groups:
+        - name: etcd-backup
+          rules:
+            - alert: EtcdBackupTooOld
+              expr: time() - etcd_backup_last_success_timestamp_seconds > 8 * 3600
+              for: 10m
+              labels:
+                severity: critical
+              annotations:
+                summary: "etcd backup on {{ $labels.instance }} is older than 8h"
+                description: "Last successful backup was {{ $value | humanizeDuration }} ago. Check: systemctl status etcd-backup.timer; journalctl -u etcd-backup"
+            - alert: EtcdBackupMetricMissing
+              expr: absent(etcd_backup_last_success_timestamp_seconds)
+              for: 1h
+              labels:
+                severity: warning
+              annotations:
+                summary: "No etcd backup metric: backup script or node-exporter textfile collector broken"
+
   alertmanager:
     alertmanagerSpec:
       storage:
