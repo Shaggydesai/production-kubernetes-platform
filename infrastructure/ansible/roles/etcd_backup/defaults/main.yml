@@ -1,0 +1,6 @@
+---
+etcd_backup_group: etcdbackup
+etcd_backup_admin_user: sagar
+etcd_backup_pull_user: etcdpull
+etcd_backup_pull_from: 192.168.75.1
+etcd_backup_pull_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIArNcWxSTPHrxNYnvR04lZ/lqSaac/8dYRPSSQC4aNJC etcd-pull"
