@@ -11,6 +11,7 @@ spec:
   backoffLimit: 2
   template:
     spec:
+      serviceAccountName: vault-configurator
       restartPolicy: Never
       containers:
         - name: vault-configure
@@ -19,14 +20,8 @@ spec:
           volumeMounts:
             - name: script
               mountPath: /scripts
-            - name: root-token
-              mountPath: /vault/root-token
-              readOnly: true
       volumes:
         - name: script
           configMap:
             name: vault-config-script
             defaultMode: 0755
-        - name: root-token
-          secret:
-            secretName: vault-root-token

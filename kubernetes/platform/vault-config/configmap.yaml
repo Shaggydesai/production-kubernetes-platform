@@ -11,13 +11,11 @@ data:
     #!/bin/sh
     set -e
     export VAULT_ADDR=http://vault.vault.svc:8200
-    export VAULT_TOKEN=$(cat /vault/root-token/token)
+    SA_JWT=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+    VAULT_TOKEN=$(vault write -field=token auth/kubernetes/login role=vault-configurator jwt="$SA_JWT")
+    export VAULT_TOKEN
+    echo "Logged in via Kubernetes auth (role vault-configurator)"
 
-    echo "Enabling KV v2 secrets engine..."
-    vault secrets enable -path=secret kv-v2 || echo "already enabled"
-
-    echo "Enabling Kubernetes auth method..."
-    vault auth enable kubernetes || echo "already enabled"
 
     echo "Configuring Kubernetes auth..."
     vault write auth/kubernetes/config \
@@ -38,14 +36,14 @@ data:
       ttl=1h
 
     echo "Seeding demo secret (idempotent)..."
-    if ! vault kv get secret/demo-app >/dev/null 2>&1; then
+    if ! vault kv metadata get secret/demo-app >/dev/null 2>&1; then
       vault kv put secret/demo-app username=admin password=supersecret123
     else
       echo "secret/demo-app already exists, skipping"
     fi
 
     echo "Seeding Grafana admin credentials (idempotent)..."
-    if ! vault kv get secret/grafana >/dev/null 2>&1; then
+    if ! vault kv metadata get secret/grafana >/dev/null 2>&1; then
       GRAFANA_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
       vault kv put secret/grafana admin-user=admin admin-password="$GRAFANA_PASSWORD"
     else
@@ -53,7 +51,7 @@ data:
     fi
 
     echo "Seeding PostgreSQL credentials (idempotent)..."
-    if ! vault kv get secret/postgresql >/dev/null 2>&1; then
+    if ! vault kv metadata get secret/postgresql >/dev/null 2>&1; then
       PG_ADMIN_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
       PG_USER_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
       vault kv put secret/postgresql postgres-password="$PG_ADMIN_PASSWORD" password="$PG_USER_PASSWORD"
@@ -62,7 +60,7 @@ data:
     fi
 
     echo "Seeding taskflow-api JWT secret (idempotent)..."
-    if ! vault kv get secret/taskflow-api >/dev/null 2>&1; then
+    if ! vault kv metadata get secret/taskflow-api >/dev/null 2>&1; then
       JWT_SECRET=$(vault write -f -field=random_bytes sys/tools/random/32 format=base64)
       vault kv put secret/taskflow-api jwt-secret="$JWT_SECRET"
     else
@@ -70,7 +68,7 @@ data:
     fi
 
     echo "Seeding MinIO credentials (idempotent)..."
-    if ! vault kv get secret/minio >/dev/null 2>&1; then
+    if ! vault kv metadata get secret/minio >/dev/null 2>&1; then
       MINIO_ROOT_USER="minioadmin"
       MINIO_ROOT_PASSWORD=$(vault write -f -field=random_bytes sys/tools/random/20 format=base64)
       vault kv put secret/minio rootUser="$MINIO_ROOT_USER" rootPassword="$MINIO_ROOT_PASSWORD"
@@ -79,7 +77,7 @@ data:
     fi
 
     echo "Seeding Velero MinIO credentials (idempotent)..."
-    if ! vault kv get secret/velero >/dev/null 2>&1; then
+    if ! vault kv metadata get secret/velero >/dev/null 2>&1; then
       MINIO_ROOT_USER=$(vault kv get -field=rootUser secret/minio)
       MINIO_ROOT_PASSWORD=$(vault kv get -field=rootPassword secret/minio)
       CLOUD_CREDS=$(printf '[default]\naws_access_key_id=%s\naws_secret_access_key=%s' "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD")
