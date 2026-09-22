@@ -1,0 +1,7 @@
+---
+control_plane_metrics_backup_dir: /root/manifest-backups
+control_plane_metrics_node_ip: "{{ ansible_default_ipv4.address }}"
+control_plane_metrics_flags:
+  - { file: kube-controller-manager.yaml, flag: bind-address, value: "0.0.0.0" }
+  - { file: kube-scheduler.yaml,          flag: bind-address, value: "0.0.0.0" }
+  - { file: etcd.yaml, flag: listen-metrics-urls, value: "http://127.0.0.1:2381,http://{{ control_plane_metrics_node_ip }}:2381" }

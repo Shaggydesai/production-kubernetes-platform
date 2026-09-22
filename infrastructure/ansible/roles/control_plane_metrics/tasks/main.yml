@@ -1,0 +1,52 @@
+---
+# NEVER use lineinfile "backup: yes" here: the backup would land in
+# /etc/kubernetes/manifests and the kubelet would run it as a second pod.
+
+- name: Detect which static pod flags need changing
+  ansible.builtin.lineinfile:
+    path: "/etc/kubernetes/manifests/{{ item.file }}"
+    regexp: '^\s*- --{{ item.flag }}='
+    line: "    - --{{ item.flag }}={{ item.value }}"
+  check_mode: true
+  register: cpm_detect
+  loop: "{{ control_plane_metrics_flags }}"
+  loop_control:
+    label: "{{ item.file }} {{ item.flag }}"
+
+- name: Create backup directory outside the manifests folder
+  ansible.builtin.file:
+    path: "{{ control_plane_metrics_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Back up manifests that are about to change
+  ansible.builtin.copy:
+    src: "/etc/kubernetes/manifests/{{ item.item.file }}"
+    dest: "{{ control_plane_metrics_backup_dir }}/{{ item.item.file }}.{{ ansible_date_time.epoch }}"
+    remote_src: true
+    mode: "0600"
+  loop: "{{ cpm_detect.results }}"
+  loop_control:
+    label: "{{ item.item.file }}"
+  when: item.changed
+
+- name: Set static pod flags
+  ansible.builtin.lineinfile:
+    path: "/etc/kubernetes/manifests/{{ item.file }}"
+    regexp: '^\s*- --{{ item.flag }}='
+    line: "    - --{{ item.flag }}={{ item.value }}"
+  register: cpm_set
+  loop: "{{ control_plane_metrics_flags }}"
+  loop_control:
+    label: "{{ item.file }} {{ item.flag }}"
+
+- name: Wait for the API server after a control-plane restart
+  ansible.builtin.command: kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw /readyz
+  register: cpm_ready
+  until: cpm_ready.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false
+  when: cpm_set.changed and not ansible_check_mode
