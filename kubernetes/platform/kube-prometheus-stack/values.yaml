@@ -68,8 +68,8 @@ kube-prometheus-stack:
             - webhook_url_file: /etc/alertmanager/secrets/alertmanager-discord/webhook-url
               send_resolved: true
     alertmanagerSpec:
-      secrets:
-        - alertmanager-discord
+      useExistingSecret: true
+      configSecret: alertmanager-config  
       storage:
         volumeClaimTemplate:
           spec:
