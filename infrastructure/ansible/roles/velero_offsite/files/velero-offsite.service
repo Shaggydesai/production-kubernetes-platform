@@ -1,0 +1,9 @@
+[Unit]
+Description=Mirror the Velero MinIO bucket off-cluster (encrypted)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/velero-offsite.sh
+Nice=10
+IOSchedulingClass=idle

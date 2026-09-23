@@ -215,3 +215,24 @@ still an open item.
   the password manager copy. **Without it, every backup is unreadable.**
 - **Cluster admin:** `/etc/kubernetes/admin.conf` on `k8s-cp01`, also inside every
   backup bundle.
+
+---
+
+## 10. Velero off-cluster copy
+
+| | |
+|---|---|
+| **Runs** | `velero-offsite.timer` on `k8s-cp01`, daily 03:15 UTC (after the 01:00 and 02:00 Velero schedules) |
+| **Script** | `/usr/local/sbin/velero-offsite.sh` (Ansible role `velero_offsite`) |
+| **How** | `rclone sync` of bucket `velero-backups` → `/var/lib/velero-offsite/mirror`, then an age-encrypted tar into `/var/backups/velero-offsite` |
+| **Retention** | 7 days on the node, 14 days on the laptop (`C:\Backups\velero`) |
+| **Monitoring** | `velero_offsite_last_success_timestamp_seconds` → `VeleroOffsiteCopyTooOld` (>36h), `VeleroOffsiteMetricMissing` |
+
+**To restore from it:** decrypt and unpack the snapshot, then either upload the
+tree back into MinIO (`rclone sync <dir> lab:velero-backups`) and let Velero read
+it as usual, or point a BackupStorageLocation at wherever you put it. The tree is
+a Kopia repository, so it must be restored whole, not file by file.
+
+**Note:** `dl.min.io` stopped serving the `mc` client (HTTP 410), which is why
+this uses `rclone` from Ubuntu's repositories instead. Prefer packaged tools over
+vendor download URLs in automation.

@@ -1,0 +1,45 @@
+---
+- name: Install rclone (packaged, so no fragile vendor download URLs)
+  ansible.builtin.apt:
+    name: rclone
+    state: present
+
+- name: Create working and output directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /var/lib/velero-offsite, group: root, mode: "0750" }
+    - { path: /var/backups/velero-offsite, group: etcdbackup, mode: "0750" }
+
+- name: Install mirror script
+  ansible.builtin.copy:
+    src: velero-offsite.sh
+    dest: /usr/local/sbin/velero-offsite.sh
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install systemd units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - velero-offsite.service
+    - velero-offsite.timer
+  notify: Reload systemd
+
+- name: Apply systemd reload before touching the timer
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the off-site timer
+  ansible.builtin.systemd:
+    name: velero-offsite.timer
+    enabled: true
+    state: started

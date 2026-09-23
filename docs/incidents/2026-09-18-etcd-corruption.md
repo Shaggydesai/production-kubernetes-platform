@@ -131,8 +131,8 @@ the fault itself:
 | 7 | Host-level configuration in code | **Done** (`etcd_backup`, `node_metrics`, `control_plane_metrics` Ansible roles; dry run reports no drift) |
 | 8 | Vault root token removed from the cluster | **Done** (Job uses Kubernetes auth with a least-privilege policy; root token revoked; admin access via `userpass`) |
 | 9 | Rotate credentials exposed during the incident | **Done** (PostgreSQL admin and app passwords; old Vault versions destroyed) |
-| 10 | Velero volume restore fixed and proven | **Open** |
-| 11 | Velero backups copied off-cluster (they live in in-cluster MinIO today) | **Open** |
+| 10 | Velero volume restore fixed and proven | **Done** — drill 23 Sep 2026: backup → namespace deleted → restore → canary file byte-identical |
+| 11 | Velero backups copied off-cluster | **Done** — nightly rclone mirror, age-encrypted, pulled to the laptop, alerted on |
 | 12 | Multi-node control plane (etcd quorum) | **Open** — accepted risk for a lab on one physical host |
 | 13 | Periodic restore drill: rebuild the cluster from Git + backups and time it | **Open** |
 
