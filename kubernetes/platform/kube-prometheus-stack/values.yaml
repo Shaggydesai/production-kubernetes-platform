@@ -20,6 +20,25 @@ kube-prometheus-stack:
       - '--collector.textfile.directory=/host/root/var/lib/node_exporter/textfile_collector'
                 
   additionalPrometheusRulesMap:
+    velero-offsite:
+      groups:
+        - name: velero-offsite
+          rules:
+            - alert: VeleroOffsiteCopyTooOld
+              expr: time() - velero_offsite_last_success_timestamp_seconds > 36 * 3600
+              for: 30m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Velero off-cluster copy is older than 36h"
+                description: "Check: systemctl status velero-offsite.timer; journalctl -u velero-offsite"
+            - alert: VeleroOffsiteMetricMissing
+              expr: absent(velero_offsite_last_success_timestamp_seconds)
+              for: 2h
+              labels:
+                severity: warning
+              annotations:
+                summary: "No off-cluster copy metric: the mirror job or node-exporter may be broken"
     velero:
       groups:
         - name: velero
