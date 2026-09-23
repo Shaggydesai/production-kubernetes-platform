@@ -50,7 +50,6 @@ velero:
         includedNamespaces:
           - default
           - vault
-          - minio
     daily-metadata:
       disabled: false
       schedule: "0 2 * * *"

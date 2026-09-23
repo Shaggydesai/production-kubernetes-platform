@@ -20,6 +20,40 @@ kube-prometheus-stack:
       - '--collector.textfile.directory=/host/root/var/lib/node_exporter/textfile_collector'
                 
   additionalPrometheusRulesMap:
+    velero:
+      groups:
+        - name: velero
+          rules:
+            - alert: VeleroBackupFailure
+              expr: increase(velero_backup_failure_total[1h]) > 0
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Velero backup failures in the last hour: {{ $value }}"
+                description: "Check: velero backup get; velero backup logs <name>"
+            - alert: VeleroBackupPartialFailure
+              expr: increase(velero_backup_partial_failure_total[1h]) > 0
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Velero partially failed backups in the last hour: {{ $value }}"
+            - alert: VeleroBackupTooOld
+              expr: time() - max by (schedule) (velero_backup_last_successful_timestamp) > 36 * 3600
+              for: 30m
+              labels:
+                severity: critical
+              annotations:
+                summary: "No successful Velero backup for schedule {{ $labels.schedule }} in 36h"
+                description: "Check the schedule and the node-agent pods in the velero namespace."
+            - alert: VeleroBackupMetricMissing
+              expr: absent(velero_backup_last_successful_timestamp)
+              for: 1h
+              labels:
+                severity: warning
+              annotations:
+                summary: "No Velero backup metrics: Velero or its ServiceMonitor may be broken"
     etcd-backup:
       groups:
         - name: etcd-backup
