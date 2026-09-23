@@ -31,3 +31,33 @@ velero:
           name: plugins
 
   deployNodeAgent: true
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: kube-prometheus-stack
+
+  schedules:
+    daily-data:
+      disabled: false
+      schedule: "0 1 * * *"          # 01:00 UTC = 06:30 IST
+      template:
+        ttl: "168h"                   # keep 7 days
+        storageLocation: default
+        defaultVolumesToFsBackup: true
+        includedNamespaces:
+          - default
+          - vault
+          - minio
+    daily-metadata:
+      disabled: false
+      schedule: "0 2 * * *"
+      template:
+        ttl: "336h"                   # keep 14 days
+        storageLocation: default
+        defaultVolumesToFsBackup: false
+        snapshotVolumes: false
+        includedNamespaces:
+          - "*"  
