@@ -1,0 +1,12 @@
+[Unit]
+Description=Disable NIC offloads (workaround for VMware e1000 Tx unit hang)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/ethtool -K ens33 tso off gso off gro off tx off sg off
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,38 @@
+---
+# VMware's emulated e1000 NIC hangs its transmit ring under load
+# ("Detected Tx Unit Hang"), which takes the node off the network entirely.
+# Disabling segmentation/checksum offloads avoids it. The durable fix is to
+# switch the VM's adapter to vmxnet3.
+
+- name: Ensure ethtool is installed
+  ansible.builtin.apt:
+    name: ethtool
+    state: present
+
+- name: Install NIC offload unit
+  ansible.builtin.copy:
+    src: nic-offload-off.service
+    dest: /etc/systemd/system/nic-offload-off.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Apply systemd reload before enabling the unit
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and apply NIC offload settings
+  ansible.builtin.systemd:
+    name: nic-offload-off.service
+    enabled: true
+    state: started
+  when: not ansible_check_mode      # the unit file does not exist during --check
+
+- name: Raise inotify limits for Kubernetes workloads
+  ansible.builtin.copy:
+    src: 99-k8s-inotify.conf
+    dest: /etc/sysctl.d/99-k8s-inotify.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply sysctl settings
