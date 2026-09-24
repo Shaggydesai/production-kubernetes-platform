@@ -11,6 +11,18 @@ postgresql:
       adminPasswordKey: postgres-password
       userPasswordKey: password
   primary:
+    # Bitnami applies resourcesPreset "nano" (150m CPU / 192Mi) unless told
+    # otherwise - that throttled this database 41% of scheduling periods.
+    # No CPU limit by design: the request drives scheduling, a limit only adds
+    # CFS throttling and tail latency. Memory IS limited - unbounded growth is
+    # a real failure mode, unbounded CPU is not.
+    resourcesPreset: "none"
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
     persistence:
       enabled: true
       storageClass: longhorn
