@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-metrics-server
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
+    targetRevision: feature/ubuntu-template
+    path: kubernetes/platform/metrics-server
+    helm:
+      releaseName: metrics-server
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

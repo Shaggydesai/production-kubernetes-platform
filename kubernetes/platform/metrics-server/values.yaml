@@ -1,0 +1,22 @@
+metrics-server:
+  replicas: 1
+
+  # kubeadm issues kubelet serving certs signed by a per-node self-signed CA,
+  # so metrics-server cannot verify them. Two options:
+  #   1. --kubelet-insecure-tls (here): metrics-server skips verification.
+  #      Metrics traffic stays inside the cluster network; the exposure is
+  #      that a MITM on the node network could feed false metrics.
+  #   2. serverTLSBootstrap: true in the kubelet config, then approve the
+  #      CSRs - proper verification, but certs rotate and every rotation
+  #      needs approval or an approver controller.
+  # Option 1 is the deliberate choice for this lab. See docs/adr/.
+  args:
+    - --kubelet-insecure-tls
+    - --kubelet-preferred-address-types=InternalIP
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
