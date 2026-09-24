@@ -9,8 +9,6 @@ spec:
     repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
     targetRevision: feature/ubuntu-template
     path: kubernetes/platform/vault-config
-    directory:
-      recurse: false
   destination:
     server: https://kubernetes.default.svc
     namespace: vault
