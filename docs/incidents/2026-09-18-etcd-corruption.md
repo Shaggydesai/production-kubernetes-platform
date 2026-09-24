@@ -70,7 +70,19 @@ was repaired on 21 September with 47 seconds of API downtime.
 
 ## 4. Root cause
 
-**Direct cause: not conclusively established.** The evidence points to the etcd
+**Direct cause: not conclusively established, but a strong candidate was found
+on 24 September 2026.** On that date `k8s-worker01` twice dropped off the
+network entirely while still running, with the console repeating
+`e1000 0000:02:01.0 ens33: Detected Tx Unit Hang` — a hang in VMware's emulated
+NIC under load. That produces exactly the symptom recorded at the start of this
+incident: unrelated components across every namespace failing simultaneously
+with "network is unreachable", with no single application at fault. Combined
+with a single-member etcd on a laptop, an abrupt loss of connectivity and the
+host shutdown that followed is a plausible path to the corrupted write.
+Mitigation is now applied (offloads disabled via the `node_tuning` Ansible
+role); the durable fix is to move the VMs to the `vmxnet3` adapter.
+
+**Original assessment (kept for the record):** The evidence points to the etcd
 data files being damaged by an abrupt interruption of the underlying VM or its
 storage: the cluster runs on a single VMware Workstation host, the nodes use
 short DHCP leases, and the failure began with a simultaneous, cluster-wide
