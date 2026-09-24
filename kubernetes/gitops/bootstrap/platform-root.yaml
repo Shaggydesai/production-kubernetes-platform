@@ -1,4 +1,4 @@
-﻿apiVersion: argoproj.io/v1alpha1
+apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: platform-root
@@ -19,5 +19,8 @@ spec:
 
   syncPolicy:
     automated:
-      prune: true
+      # Deliberately NO prune at the root. Every child app has prune:true,
+      # so pruning here would cascade: delete a file -> Application pruned
+      # -> that app's entire workload deleted. Removing an app is a
+      # deliberate manual step. See docs/adr/ADR-002-gitops.md
       selfHeal: true

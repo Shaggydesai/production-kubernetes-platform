@@ -20,6 +20,43 @@ kube-prometheus-stack:
       - '--collector.textfile.directory=/host/root/var/lib/node_exporter/textfile_collector'
                 
   additionalPrometheusRulesMap:
+    argocd:
+      groups:
+        - name: argocd
+          rules:
+            - alert: ArgoAppOutOfSync
+              expr: argocd_app_info{sync_status="OutOfSync"} == 1
+              for: 30m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Argo app {{ $labels.name }} OutOfSync for 30m"
+                description: "Git and the cluster disagree and nothing is resolving it."
+            - alert: ArgoAppDegraded
+              expr: argocd_app_info{health_status="Degraded"} == 1
+              for: 15m
+              labels:
+                severity: critical
+              annotations:
+                summary: "Argo app {{ $labels.name }} is Degraded"
+            - alert: ArgoAppAutoSyncDisabled
+              expr: argocd_app_info{autosync_enabled="false"} == 1
+              for: 1h
+              labels:
+                severity: warning
+              annotations:
+                summary: "Argo app {{ $labels.name }} has auto-sync disabled"
+                description: >-
+                  Expected briefly during maintenance. Otherwise the app has
+                  silently stopped following Git - this went undetected on
+                  platform-vault for three days after the Sep 2026 recovery.
+            - alert: ArgoMetricsMissing
+              expr: absent(argocd_app_info)
+              for: 1h
+              labels:
+                severity: warning
+              annotations:
+                summary: "No Argo CD metrics: the controller or its ServiceMonitor may be broken"
     etcd-disk:
       groups:
         - name: etcd-disk

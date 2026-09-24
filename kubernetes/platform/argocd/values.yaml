@@ -35,9 +35,21 @@ argo-cd:
       policy.default: ""
 
   controller:
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+        additionalLabels:
+          release: kube-prometheus-stack
     replicas: 1
 
   server:
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+        additionalLabels:
+          release: kube-prometheus-stack
     replicas: 1
     extraArgs:
       - --insecure
@@ -50,9 +62,21 @@ argo-cd:
       sectionName: https
 
   repoServer:
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+        additionalLabels:
+          release: kube-prometheus-stack
     replicas: 1
 
   applicationSet:
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+        additionalLabels:
+          release: kube-prometheus-stack
     replicas: 1
 
   dex:

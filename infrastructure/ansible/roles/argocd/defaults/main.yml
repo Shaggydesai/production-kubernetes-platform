@@ -1,9 +1,9 @@
 ---
 argocd_namespace: argocd
 argocd_release_name: argocd
-argocd_chart_repo_name: argo
-argocd_chart_repo_url: https://argoproj.github.io/argo-helm
-argocd_chart_name: argo/argo-cd
-argocd_chart_version: "10.4.0"
 
-argocd_domain: argocd.platform.internal
+# Install the in-repo wrapper chart, NOT the upstream chart directly.
+# The wrapper pins argo-cd as a vendored dependency (charts/*.tgz) and adds
+# platform templates (the HTTPRoute). Its values.yaml is the SINGLE source of
+# Argo CD configuration - there is deliberately no values template here.
+argocd_chart_path: "{{ playbook_dir }}/../../../kubernetes/platform/argocd"
