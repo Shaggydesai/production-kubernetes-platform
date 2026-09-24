@@ -20,6 +20,60 @@ kube-prometheus-stack:
       - '--collector.textfile.directory=/host/root/var/lib/node_exporter/textfile_collector'
                 
   additionalPrometheusRulesMap:
+    etcd-disk:
+      groups:
+        - name: etcd-disk
+          rules:
+            - record: lab:etcd_wal_fsync_p99
+              expr: histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[15m]))
+            - record: lab:etcd_backend_commit_p99
+              expr: histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket[15m]))
+            - alert: EtcdDiskCriticallySlow
+              expr: lab:etcd_wal_fsync_p99 > 1
+              for: 10m
+              labels:
+                severity: critical
+              annotations:
+                summary: "etcd WAL fsync p99 {{ $value | humanizeDuration }} on {{ $labels.instance }}"
+                description: >-
+                  etcd is waiting over a second on disk. Known cause: VMs on HDD.
+                  Accepted risk pending SSD migration (postmortem item 14).
+                  Expect API timeouts while this fires.
+    etcd-database:
+      groups:
+        - name: etcd-database
+          rules:
+            - alert: EtcdDatabaseQuotaApproaching
+              expr: etcd_mvcc_db_total_size_in_bytes / etcd_server_quota_backend_bytes > 0.6
+              for: 15m
+              labels:
+                severity: warning
+              annotations:
+                summary: "etcd db at {{ $value | humanizePercentage }} of backend quota"
+                description: >-
+                  At 100% etcd goes READ-ONLY and the cluster stops accepting writes.
+                  Check fragmentation first: a defrag usually reclaims most of it.
+                  Runbook: docs/runbooks/etcd-backup-restore.md
+
+            - alert: EtcdDatabaseHighFragmentation
+              expr: >-
+                (etcd_mvcc_db_total_size_in_bytes - etcd_mvcc_db_total_size_in_use_in_bytes)
+                / etcd_mvcc_db_total_size_in_bytes > 0.75
+                and etcd_mvcc_db_total_size_in_bytes > 200e6
+              for: 1h
+              labels:
+                severity: warning
+              annotations:
+                summary: "etcd db {{ $value | humanizePercentage }} reclaimable"
+                description: "Weekly defrag timer should clear this. If it persists, check etcd-defrag.timer."
+
+            - alert: EtcdDefragNotRunning
+              expr: time() - etcd_defrag_last_success_timestamp_seconds > 1209600
+              for: 1h
+              labels:
+                severity: warning
+              annotations:
+                summary: "etcd defrag job has not succeeded in 14 days"
     velero-offsite:
       groups:
         - name: velero-offsite
@@ -94,32 +148,11 @@ kube-prometheus-stack:
                 summary: "No etcd backup metric: backup script or node-exporter textfile collector broken"
 
   alertmanager:
-    config:
-      route:
-        receiver: discord
-        group_by: ['alertname', 'namespace']
-        group_wait: 30s
-        group_interval: 5m
-        repeat_interval: 12h
-        routes:
-          - receiver: 'null'
-            matchers: ['alertname = "Watchdog"']
-          - receiver: 'null'
-            matchers: ['alertname = "InfoInhibitor"']
-          - receiver: 'null'
-            matchers: ['severity = "info"']
-          # TEMP: kubeadm binds control-plane metrics to 127.0.0.1.
-          # Remove these two routes after the metrics-bind fix.
-          - receiver: 'null'
-            matchers: ['alertname =~ "KubeControllerManagerDown|KubeSchedulerDown|KubeProxyDown|etcdMembersDown|etcdInsufficientMembers"']
-          - receiver: 'null'
-            matchers: ['alertname = "TargetDown"', 'job =~ "kube-controller-manager|kube-scheduler|kube-proxy|kube-etcd"']
-      receivers:
-        - name: 'null'
-        - name: discord
-          discord_configs:
-            - webhook_url_file: /etc/alertmanager/secrets/alertmanager-discord/webhook-url
-              send_resolved: true
+    # The running config does NOT come from here. useExistingSecret +
+    # configSecret below make the operator ignore any `config:` key in these
+    # values. The live alertmanager.yaml is rendered by
+    # kubernetes/platform/vault-config/externalsecret-alertmanager-config.yaml
+    # Edit it there, not here.
     alertmanagerSpec:
       useExistingSecret: true
       configSecret: alertmanager-config  

@@ -236,3 +236,21 @@ a Kopia repository, so it must be restored whole, not file by file.
 **Note:** `dl.min.io` stopped serving the `mc` client (HTTP 410), which is why
 this uses `rclone` from Ubuntu's repositories instead. Prefer packaged tools over
 vendor download URLs in automation.
+
+## 11. Defragmentation
+
+etcd compacts history every 5 minutes but never shrinks the bbolt file, so
+physical size climbs to its high-water mark. On 2026-09-24 the db was 342 MB
+with 16 MB in use (95% reclaimable), tracking toward the 2 GiB backend quota
+that puts etcd read-only.
+
+- `etcd-defrag.timer` runs Sundays 03:30, via the `etcd_defrag` Ansible role.
+- It only defrags above 100 MB physical AND >50% reclaimable; otherwise it
+  skips and takes no outage.
+- Single-member cluster: defrag blocks etcd, so a real run means a brief API
+  outage (sub-second at current size). Multi-member clusters defrag one member
+  at a time and stay available.
+- Manual: `sudo /usr/local/sbin/etcd-defrag.sh`
+  Force: `sudo THRESHOLD_PCT=0 MIN_SIZE_BYTES=0 /usr/local/sbin/etcd-defrag.sh`
+- Verify: `etcdctl endpoint status -w table` (DB SIZE vs IN USE) and
+  `etcdctl alarm list` must be empty.

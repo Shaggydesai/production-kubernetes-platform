@@ -1,0 +1,36 @@
+---
+- name: Install etcd defrag script
+  ansible.builtin.copy:
+    src: etcd-defrag.sh
+    dest: /usr/local/sbin/etcd-defrag.sh
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Install etcd defrag systemd unit
+  ansible.builtin.copy:
+    src: etcd-defrag.service
+    dest: /etc/systemd/system/etcd-defrag.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload systemd
+
+- name: Install etcd defrag systemd timer
+  ansible.builtin.copy:
+    src: etcd-defrag.timer
+    dest: /etc/systemd/system/etcd-defrag.timer
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload systemd
+
+- name: Flush handlers so the units exist before we enable them
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start etcd defrag timer
+  ansible.builtin.systemd:
+    name: etcd-defrag.timer
+    enabled: true
+    state: started
+  when: not ansible_check_mode

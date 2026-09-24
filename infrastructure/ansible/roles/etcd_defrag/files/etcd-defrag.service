@@ -1,0 +1,8 @@
+[Unit]
+Description=Defragment etcd when fragmentation warrants it
+Documentation=file:///home/sagar/production-kubernetes-platform/docs/runbooks/etcd-backup-restore.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/etcd-defrag.sh
