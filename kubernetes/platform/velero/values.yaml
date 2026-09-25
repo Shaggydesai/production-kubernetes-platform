@@ -48,7 +48,7 @@ velero:
         storageLocation: default
         defaultVolumesToFsBackup: true
         includedNamespaces:
-          - default
+          - taskflow
           - vault
     daily-metadata:
       disabled: false
