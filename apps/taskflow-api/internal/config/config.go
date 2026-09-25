@@ -22,7 +22,7 @@ func getenv(key, fallback string) string {
 func Load() Config {
 	return Config{
 		Port:       getenv("PORT", "8080"),
-		DBHost:     getenv("DB_HOST", "postgresql.default.svc"),
+		DBHost:     getenv("DB_HOST", "postgresql.taskflow.svc"),
 		DBPort:     getenv("DB_PORT", "5432"),
 		DBUser:     getenv("DB_USER", "taskflow"),
 		DBPassword: os.Getenv("DB_PASSWORD"), // no fallback — must come from the mounted Secret
