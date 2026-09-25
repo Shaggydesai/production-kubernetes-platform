@@ -132,3 +132,122 @@ kubectl -n <ns> get secret <name> -o jsonpath='{.data.<key>}' | base64 -d \
 
 Terminal output ends up in transcripts, tickets and screenshots. Redact at the
 source, because you cannot un-share a credential — you can only rotate it.
+
+## Discord webhook (Alertmanager)
+
+Rotated 2026-09-25 after the URL was echoed to a terminal. Any webhook URL that
+has appeared on a screen, in a chat, or in shell history is burned.
+
+### Find the real Vault path first
+
+The ExternalSecret is the authority on where the value lives. Read it before
+writing anything to Vault:
+
+    kubectl -n monitoring get externalsecret alertmanager-config -o yaml \
+      | sed -n '/^spec:/,/^status:/p'
+
+As of 2026-09-25 it reads:
+
+    remoteRef:
+      key: alertmanager            # -> secret/alertmanager
+      property: discord-webhook-url
+    secretKey: webhookUrl          # -> {{ .webhookUrl }} in the target template
+
+On 2026-09-25 this step was skipped and the new URL went to `secret/discord`
+with key `webhookUrl`. ESO kept reporting `Ready=True SecretSynced` the whole
+time, because it was still reading the old path correctly. The only signal that
+anything was wrong was the target secret's hash not changing. A `version 1` in
+the `vault kv` output is the same tell: it means you just created a new path.
+
+### Rotate
+
+1. Discord: Server Settings -> Integrations -> Webhooks -> **delete** the old
+   webhook, then create a new one on the same channel and copy its URL.
+   Deleting first is what actually revokes the old URL; creating a second
+   webhook alongside it leaves the burned one live.
+
+2. Record the before-state hash:
+
+       kubectl -n monitoring get secret alertmanager-config \
+         -o jsonpath='{.data}' | sha256sum
+
+3. Write it to Vault with `kv patch`, **never** `kv put`. KV v2 stores one JSON
+   document per path, so `put` silently deletes every other property at
+   `secret/alertmanager`. `-method=rw` is the fallback for policies that grant
+   `update` but not `patch`.
+
+   Write the block to a file and run it; pasting a multi-line quoted block
+   straight into the prompt gets mangled.
+
+       cat > /tmp/rot-am.sh <<'SH'
+       set -eu
+       read -rsp 'Vault username: ' VU; echo
+       read -rsp 'Vault password: ' VP; echo
+       read -rsp 'New webhook URL: ' WH; echo
+
+       printf '%s\n%s\n%s\n' "$VU" "$VP" "$WH" \
+         | kubectl -n vault exec -i vault-0 -- sh -c '
+         read -r VU; read -r VP; read -r WH
+         export VAULT_ADDR=http://127.0.0.1:8200
+         VAULT_TOKEN=$(vault login -token-only -method=userpass \
+           username="$VU" password="$VP") || exit 1
+         export VAULT_TOKEN
+         if ! printf "%s" "$WH" \
+           | vault kv patch secret/alertmanager discord-webhook-url=-; then
+           printf "%s" "$WH" \
+             | vault kv patch -method=rw secret/alertmanager \
+                 discord-webhook-url=- || exit 1
+         fi
+         vault token revoke -self >/dev/null 2>&1
+       '
+       unset VU VP WH
+       SH
+       bash /tmp/rot-am.sh; rm -f /tmp/rot-am.sh
+
+   `read -rsp` keeps all three values off the screen and out of history. The
+   `=-` makes Vault read the value from stdin, so it never appears in the pod's
+   argv. The self-revoke kills the login token when the command ends.
+
+4. Force the resync and confirm the hash *changed*:
+
+       kubectl -n monitoring annotate externalsecret alertmanager-config \
+         force-sync="$(date +%s)" --overwrite
+       sleep 20
+       kubectl -n monitoring get secret alertmanager-config \
+         -o jsonpath='{.data}' | sha256sum
+
+   Allow up to ~60s. If the hash is unchanged, stop and re-read the
+   ExternalSecret; do not assume it will catch up.
+
+### Verify
+
+    AM=alertmanager-kube-prometheus-stack-alertmanager-0
+
+    # config-reloader must log "Reload triggered" after the secret changed
+    kubectl -n monitoring logs $AM -c config-reloader --tail=20
+
+    # before/after the probe: total must increment, failed must stay 0
+    kubectl -n monitoring exec $AM -c alertmanager -- sh -c \
+      'wget -qO- http://localhost:9093/metrics | grep notifications | grep discord'
+
+    kubectl -n monitoring exec $AM -c alertmanager -- amtool alert add \
+      alertname=RotationProbe severity=warning \
+      --annotation='summary="rotation probe"' \
+      --alertmanager.url=http://localhost:9093
+
+Use `severity=warning` or higher. The route sends `severity = "info"` to the
+`null` receiver, so an info-severity probe is dropped by design and looks
+exactly like a broken webhook.
+
+Use a fresh `alertname` for each probe. Reusing one folds it into the existing
+group, where `group_interval: 5m` suppresses the notification.
+
+Alertmanager logs notification *failures* only, so an empty log is the expected
+result on success. `notifications_failed_total{integration="discord",
+reason="clientError"}` is what a dead or wrong webhook produces (Discord
+answers 401/404).
+
+Finish by looking at the Discord channel. The metrics prove Discord's API
+returned 2xx; only your eyes prove it landed in the right channel.
+
+**Never print the webhook value to verify it.** Compare hashes.
