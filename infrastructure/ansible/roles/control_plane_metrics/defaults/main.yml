@@ -1,7 +1,26 @@
 ---
 control_plane_metrics_backup_dir: /root/manifest-backups
 control_plane_metrics_node_ip: "{{ ansible_default_ipv4.address }}"
+
+# Static-pod command flags. `insertafter` is REQUIRED for any flag kubeadm does
+# not already write, because lineinfile appends to end-of-file when its regexp
+# does not match - which would put the flag outside the command list and break
+# the manifest. Anchor on --bind-address, which kubeadm always writes.
 control_plane_metrics_flags:
+  # expose metrics to Prometheus
   - { file: kube-controller-manager.yaml, flag: bind-address, value: "0.0.0.0" }
   - { file: kube-scheduler.yaml,          flag: bind-address, value: "0.0.0.0" }
   - { file: etcd.yaml, flag: listen-metrics-urls, value: "http://127.0.0.1:2381,http://{{ control_plane_metrics_node_ip }}:2381" }
+
+  # Leader-election tolerance. etcd on the HDD takes >1s to fsync under load,
+  # so the default 5s lease deadline is missed and the component exits:
+  # 47 kube-controller-manager restarts on 2026-09-25. Longer leases cost
+  # nothing here because there is only one control-plane node to fail over to.
+  # Revisit if a second control-plane node is ever added.
+  # See docs/incidents/2026-09-25-host-sleep.md action item 6.
+  - { file: kube-controller-manager.yaml, flag: leader-elect-lease-duration, value: "60s", insertafter: '^\s*- --bind-address=' }
+  - { file: kube-controller-manager.yaml, flag: leader-elect-renew-deadline, value: "40s", insertafter: '^\s*- --bind-address=' }
+  - { file: kube-controller-manager.yaml, flag: leader-elect-retry-period,   value: "5s",  insertafter: '^\s*- --bind-address=' }
+  - { file: kube-scheduler.yaml, flag: leader-elect-lease-duration, value: "60s", insertafter: '^\s*- --bind-address=' }
+  - { file: kube-scheduler.yaml, flag: leader-elect-renew-deadline, value: "40s", insertafter: '^\s*- --bind-address=' }
+  - { file: kube-scheduler.yaml, flag: leader-elect-retry-period,   value: "5s",  insertafter: '^\s*- --bind-address=' }

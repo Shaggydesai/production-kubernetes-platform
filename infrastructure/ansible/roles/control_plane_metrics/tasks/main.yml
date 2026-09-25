@@ -7,6 +7,7 @@
     path: "/etc/kubernetes/manifests/{{ item.file }}"
     regexp: '^\s*- --{{ item.flag }}='
     line: "    - --{{ item.flag }}={{ item.value }}"
+    insertafter: "{{ item.insertafter | default(omit) }}"
   check_mode: true
   register: cpm_detect
   loop: "{{ control_plane_metrics_flags }}"
@@ -37,6 +38,7 @@
     path: "/etc/kubernetes/manifests/{{ item.file }}"
     regexp: '^\s*- --{{ item.flag }}='
     line: "    - --{{ item.flag }}={{ item.value }}"
+    insertafter: "{{ item.insertafter | default(omit) }}"
   register: cpm_set
   loop: "{{ control_plane_metrics_flags }}"
   loop_control:
