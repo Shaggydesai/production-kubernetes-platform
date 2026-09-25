@@ -20,8 +20,9 @@ RUN apk add --no-cache ca-certificates && \
 
 WORKDIR /app
 
+# The SQL migrations are embedded in the binary (migrations/embed.go), so
+# they are deliberately not copied in separately.
 COPY --from=builder /build/bin/taskflow-api .
-COPY --from=builder /build/migrations ./migrations
 
 USER taskflow
 

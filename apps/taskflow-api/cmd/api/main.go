@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -15,10 +16,29 @@ import (
 	"github.com/Shaggydesai/production-kubernetes-platform/apps/taskflow-api/internal/db"
 	"github.com/Shaggydesai/production-kubernetes-platform/apps/taskflow-api/internal/handlers"
 	"github.com/Shaggydesai/production-kubernetes-platform/apps/taskflow-api/internal/middleware"
+	appmigrate "github.com/Shaggydesai/production-kubernetes-platform/apps/taskflow-api/internal/migrate"
 )
 
 func main() {
 	cfg := config.Load()
+
+	// One binary serves the API and applies migrations, so an image tag pins the
+	// schema and the code together. Run as: taskflow-api migrate up
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "migrate":
+			direction := "up"
+			if len(os.Args) > 2 {
+				direction = os.Args[2]
+			}
+			if err := appmigrate.Run(cfg, direction); err != nil {
+				log.Fatalf("migration failed: %v", err)
+			}
+			return
+		default:
+			log.Fatalf("unknown command %q (want \"migrate\")", os.Args[1])
+		}
+	}
 
 	ctx := context.Background()
 	pool, err := db.NewPool(ctx, cfg)
