@@ -57,17 +57,46 @@ kube-prometheus-stack:
                 severity: warning
               annotations:
                 summary: "No Argo CD metrics: the controller or its ServiceMonitor may be broken"
+    workload-restarts:
+      groups:
+        - name: workload-restarts
+          rules:
+            # KubePodCrashLooping only catches containers stuck in
+            # CrashLoopBackOff. kube-controller-manager restarted 47 times on
+            # 2026-09-25 while running fine for minutes between each exit, so
+            # the backoff kept resetting and nothing ever fired - for three
+            # days. These catch restart RATE instead of crash state.
+            - alert: ControlPlaneComponentRestarting
+              expr: >-
+                increase(kube_pod_container_status_restarts_total{namespace="kube-system",
+                pod=~"(kube-apiserver|kube-controller-manager|kube-scheduler|etcd)-.*"}[1h]) > 2
+              for: 10m
+              labels:
+                severity: critical
+              annotations:
+                summary: "{{ $labels.pod }} restarted {{ $value | printf \"%.0f\" }} times in the last hour"
+                description: >-
+                  A control-plane component is not staying up. Check for
+                  leader-election lease timeouts, which on slow disks look like
+                  this. See docs/incidents/2026-09-25-host-sleep.md
+            - alert: PodRestartingRepeatedly
+              expr: increase(kube_pod_container_status_restarts_total[1h]) > 5
+              for: 15m
+              labels:
+                severity: warning
+              annotations:
+                summary: "{{ $labels.namespace }}/{{ $labels.pod }} restarted {{ $value | printf \"%.0f\" }} times in the last hour"
     etcd-disk:
       groups:
         - name: etcd-disk
           rules:
             - record: lab:etcd_wal_fsync_p99
-              expr: histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[15m]))
+              expr: histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m]))
             - record: lab:etcd_backend_commit_p99
-              expr: histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket[15m]))
+              expr: histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket[5m]))
             - alert: EtcdDiskCriticallySlow
               expr: lab:etcd_wal_fsync_p99 > 1
-              for: 10m
+              for: 5m
               labels:
                 severity: critical
               annotations:
