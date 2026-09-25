@@ -1,356 +1,126 @@
-\# 🚀 Production Kubernetes Platform
-
-
-
-> A production-grade Kubernetes platform built using modern DevOps and Platform Engineering practices.
-
-
-
-!\[Platform](diagrams/platform-architecture.png)
-
-
-
-\## 📖 Overview
-
-
-
-This repository demonstrates how to design, build, secure, monitor, and operate a production-ready Kubernetes platform using open-source technologies and GitOps principles.
-
-
-
-The project is intended to simulate how a modern Platform Engineering team builds and manages infrastructure for application teams.
-
-
-
-It focuses on reliability, automation, observability, security, scalability, and disaster recovery.
-
-
-
-\---
-
-
-
-\# 🎯 Project Goals
-
-
-
-\* Build a production-ready Kubernetes platform
-
-\* Automate infrastructure provisioning
-
-\* Implement GitOps for application delivery
-
-\* Secure workloads and secrets
-
-\* Monitor cluster health and application performance
-
-\* Centralize logs
-
-\* Enable backup and disaster recovery
-
-\* Document every implementation with architecture and troubleshooting guides
-
-
-
-\---
-
-
-
-\# 🏗 Platform Architecture
-
-
-
-> \*\*Architecture diagrams will be added as the project progresses.\*\*
-
-
-
-Major platform components include:
-
-
-
-\* Kubernetes
-
-\* Helm
-
-\* Argo CD
-
-\* GitHub Actions
-
-\* Prometheus
-
-\* Grafana
-
-\* Loki
-
-\* Alertmanager
-
-\* HashiCorp Vault
-
-\* External Secrets Operator
-
-\* cert-manager
-
-\* NGINX Ingress Controller
-
-\* Longhorn
-
-\* Velero
-
-
-
-\---
-
-
-
-\# 🛠 Technology Stack
-
-
-
-| Category                 | Technology                |
-
-| ------------------------ | ------------------------- |
-
-| Operating System         | Ubuntu Server             |
-
-| Containers               | Docker                    |
-
-| Container Orchestration  | Kubernetes                |
-
-| Package Manager          | Helm                      |
-
-| Infrastructure as Code   | Terraform                 |
-
-| Configuration Management | Ansible                   |
-
-| GitOps                   | Argo CD                   |
-
-| CI/CD                    | GitHub Actions            |
-
-| Monitoring               | Prometheus + Grafana      |
-
-| Logging                  | Loki                      |
-
-| Secrets Management       | HashiCorp Vault           |
-
-| External Secrets         | External Secrets Operator |
-
-| Ingress                  | NGINX Ingress Controller  |
-
-| TLS                      | cert-manager              |
-
-| Storage                  | Longhorn                  |
-
-| Backup                   | Velero                    |
-
-
-
-\---
-
-
-
-\# 📂 Repository Structure
-
-
-
-```text
-
-production-kubernetes-platform/
-
-
-
-├── docs/
-
-├── diagrams/
-
-├── infrastructure/
-
-│   ├── terraform/
-
-│   └── ansible/
-
-├── kubernetes/
-
-│   ├── applications/
-
-│   ├── backup/
-
-│   ├── cert-manager/
-
-│   ├── gitops/
-
-│   ├── ingress/
-
-│   ├── logging/
-
-│   ├── monitoring/
-
-│   ├── namespaces/
-
-│   ├── security/
-
-│   └── storage/
-
-├── helm/
-
-├── github-actions/
-
-└── scripts/
-
+# production-kubernetes-platform
+
+A three-node Kubernetes cluster built by hand with kubeadm and operated as a real
+platform: GitOps delivery, secrets from Vault, replicated storage, backups that
+have actually been restored, and monitoring that has caught real failures.
+
+It runs on a laptop. What makes it worth reading is not the component list — it
+is the two incidents it survived, the measurements taken during them, and the
+risks accepted on purpose rather than by accident.
+
+## Incidents
+
+Both are blameless write-ups with timelines, evidence and action items.
+
+| Date | What happened | Root cause |
+|---|---|---|
+| [2026-09-18](docs/incidents/2026-09-18-etcd-corruption.md) | etcd would not start; `etcdutl snapshot status` failed with `nil bucket` | Structural damage from a hand-rebuilt bbolt database. Recovered with a staged live swap, 47s of downtime |
+| [2026-09-25](docs/incidents/2026-09-25-host-sleep.md) | Longhorn volumes remounted read-only, control plane flapped | Host entered S3 sleep with VMs running. VMware could not complete guest I/O across the suspend. No data lost |
+
+The second produced numbers worth keeping: etcd WAL fsync p99 of **1,341 ms**
+under rebuild load against **15 ms** at idle, and 47 `kube-controller-manager`
+restarts caused entirely by missed leader-election leases.
+
+## Request path
+
+```mermaid
+flowchart LR
+  client([client]) -->|"*.platform.internal"| vip["MetalLB L2<br/>192.168.75.240"]
+  vip --> gw["Envoy Gateway<br/>Gateway API"]
+  gw -->|HTTPRoute| tf["taskflow-api<br/>2 replicas"]
+  gw -->|HTTPRoute| argo["Argo CD"]
+  gw -->|HTTPRoute| demo["demo-app"]
+  tf -->|"5432 · NetworkPolicy"| pg[("PostgreSQL")]
+  pg --> lh["Longhorn<br/>replicated PVC"]
 ```
 
-
-
-\---
-
-
-
-\# 🗺 Roadmap
-
-
-
-\## Phase 1
-
-
-
-\* Repository setup
-
-\* Documentation
-
-\* Architecture
-
-
-
-\## Phase 2
-
-
-
-\* Infrastructure
-
-\* Terraform
-
-\* Ansible
-
-\* Kubernetes cluster
-
-
-
-\## Phase 3
-
-
-
-\* Kubernetes foundation
-
-\* Storage
-
-\* Ingress
-
-\* TLS
-
-
-
-\## Phase 4
-
-
-
-\* Monitoring
-
-\* Logging
-
-\* GitOps
-
-
-
-\## Phase 5
-
-
-
-\* Security
-
-\* Secrets Management
-
-
-
-\## Phase 6
-
-
-
-\* CI/CD
-
-
-
-\## Phase 7
-
-
-
-\* Backup \& Disaster Recovery
-
-
-
-\---
-
-
-
-\# 📚 Documentation
-
-
-
-Detailed implementation guides, architecture decisions, troubleshooting notes, and lessons learned will be available in the `docs/` directory.
-
-
-
-\---
-
-
-
-\# 🧪 Project Status
-
-
-
-> 🚧 Work in Progress
-
-
-
-This project is actively being built and documented as a production-style DevOps portfolio.
-
-
-
-\---
-
-
-
-\# 🤝 Contributing
-
-
-
-Contributions, suggestions, and improvements are welcome.
-
-
-
-Please read the `CONTRIBUTING.md` guide before opening a pull request.
-
-
-
-\---
-
-
-
-\# 📄 License
-
-
-
-This project is licensed under the MIT License.
-
-
-
-\---
-
-
-
-\# ⭐ Acknowledgements
-
-
-
-This project is built as a hands-on learning and portfolio initiative to demonstrate production-grade DevOps and Platform Engineering practices using industry-standard open-source technologies.
-
-
-
+`default-deny-all` is in force in the application namespace; every allowed flow
+is an explicit NetworkPolicy.
+
+## Delivery path
+
+```mermaid
+flowchart LR
+  push([git push]) --> ci["GitHub Actions<br/>vet · build · test"]
+  ci --> ghcr["GHCR<br/>image:sha"]
+  ci --> pr["pull request<br/>image tag bump"]
+  pr -->|"merge"| main[("main<br/>protected")]
+  main --> argocd["Argo CD<br/>app-of-apps"]
+  argocd --> apps["17 Applications"]
+```
+
+CI cannot push to `main` — it opens a pull request instead. The reasoning is in
+[ADR-002](docs/adr/ADR-002-gitops.md), along with why the Argo CD root
+self-heals but does not prune.
+
+## Secrets
+
+```mermaid
+flowchart LR
+  vault["Vault<br/>Raft · shamir 3-of-5"] --> eso["External Secrets<br/>Operator"]
+  eso --> secrets["Kubernetes Secrets"]
+  secrets --> pods["workloads"]
+  sa["ServiceAccount"] -.->|"Kubernetes auth"| vault
+```
+
+No secrets in Git. The Vault root token is revoked; ESO authenticates with a
+Kubernetes ServiceAccount against a least-privilege policy.
+
+## What runs here, and why
+
+| Layer | Choice | Why this one |
+|---|---|---|
+| Cluster | kubeadm 1.36.3, Ubuntu 24.04, containerd 2.2.1 | Built by hand rather than with a distro, to learn the parts |
+| CNI | Flannel | VXLAN, simple, sufficient — the interesting problems here are not networking |
+| Ingress | Envoy Gateway + Gateway API | Gateway API rather than Ingress; namespace-aware routing with explicit `allowedRoutes` |
+| Load balancer | MetalLB (L2), `192.168.75.240-250` | No cloud LB on a laptop |
+| Storage | Longhorn | Replicated block storage; survived a node loss and rebuilt itself |
+| GitOps | Argo CD, app-of-apps | 17 Applications, `main` as the only source of truth |
+| Secrets | Vault + External Secrets Operator | Credentials live in Vault; Kubernetes Secrets are rendered, never committed |
+| TLS | cert-manager, internal CA | Real certificate lifecycle without public DNS |
+| Monitoring | kube-prometheus-stack, Loki, Alertmanager → Discord | Alerts on etcd disk latency, quota, backups and Argo drift |
+| Backup | Velero + MinIO (Kopia), etcd snapshots encrypted with `age`, pulled off-cluster | Restores have been executed, not assumed |
+| CI | GitHub Actions → GHCR | Protected `main`, required status check |
+| Application | taskflow-api (Go) + PostgreSQL | Something real to deploy, break and restore |
+
+## Operations
+
+| Runbook | |
+|---|---|
+| [etcd backup and restore](docs/runbooks/etcd-backup-restore.md) | Including scheduled defragmentation and the quota trap |
+| [Lab startup and shutdown](docs/runbooks/lab-startup-shutdown.md) | Staged order, and why the host must not sleep |
+| [Secret rotation](docs/runbooks/secret-rotation.md) | Finding every consumer before rotating |
+
+## Accepted risks
+
+Deliberate, with compensating controls — see
+[PROJECT_STATE.md](docs/PROJECT_STATE.md).
+
+- **Single control-plane node.** Not fixable on one laptop. Mitigated by
+  6-hourly encrypted etcd backups, verified restorable off-cluster.
+- **etcd on a spinning disk.** Adequate at idle, collapses under concurrent
+  load. Mitigated by latency recording rules, a critical alert, and raised
+  leader-election deadlines. The real fix is an SSD.
+
+## Repository layout
+
+```text
+apps/taskflow-api/          Go application source
+docs/
+  adr/                      architecture decisions
+  incidents/                postmortems
+  runbooks/                 operational procedures
+infrastructure/
+  ansible/                  host configuration, backups, defrag, tuning
+  laptop/                   host power policy and off-site backup pull
+  vault/                    policies and bootstrap
+kubernetes/
+  applications/             workloads
+  gitops/argocd/            one Argo CD Application per component
+  gitops/bootstrap/         the root Application, applied by hand
+  platform/                 wrapper charts with vendored dependencies
+```
+
+## Status
+
+Actively run and actively broken. The postmortems are the point.
