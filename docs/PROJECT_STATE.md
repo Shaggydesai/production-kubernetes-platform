@@ -53,7 +53,6 @@ role — the chart's own `values.yaml` is the single source. See ADR-002.
 - **Monitoring blind spot** — Prometheus stores its TSDB on a Longhorn volume,
   so it cannot observe storage incidents. `EtcdDiskCriticallySlow` did not fire
   on 2026-09-25 because Prometheus was Pending throughout.
-- **age private key exists in one place.** Every backup decrypts with it.
 - **Discord webhook rotation** pending after an exposure.
 - **taskflow-api has no database schema.** The `daily-data` Velero schedule
   therefore backs up an empty database, and the restore procedure has never had

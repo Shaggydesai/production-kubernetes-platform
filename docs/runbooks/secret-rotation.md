@@ -93,3 +93,42 @@ Vault write → sync `postgresql-secret` → `ALTER USER` for both roles → res
 `taskflow-api-credentials` comes from a **separate** ExternalSecret that was
 never synced. Fix: sync `taskflow-api-secret`, confirm both Secrets match,
 restart the app. Total disruption: about 6 minutes for the app, none for Postgres.
+
+## Rotating the age backup identity
+
+This identity decrypts every etcd and Velero off-site archive. Only the **public**
+recipient belongs in Git (`roles/etcd_backup/files/recipient.txt`). The private key
+lives in a password manager and on paper — never on the node, never in terminal
+output.
+
+Rotate when the key is exposed, or annually.
+
+1. **Generate.** `age-keygen -o ~/age-new.txt` writes the identity and prints only
+   the public key to stderr. `age-keygen -y <file>` re-derives the public half later.
+2. **Store the private key before anything else.** Open it in an editor and copy it
+   into the password manager; write the `AGE-SECRET-KEY-1` line on paper. Do not
+   `cat` it — terminal echo is exactly how the 2026-09-25 exposure happened.
+3. **Replace the recipient.** Both `etcd-backup.sh` and `velero-offsite.sh` read
+   `/etc/etcd-backup/recipient.txt`, so one file change rotates both. Merge by PR,
+   then run `ansible-playbook playbooks/hosts.yml --limit control_plane -K`.
+   Expect exactly one changed task.
+4. **Prove it.** Trigger `etcd-backup.service` and `velero-offsite.service`, pull to
+   the laptop, and decrypt the newest archive with the new key. Check the filename —
+   testing an older archive proves nothing.
+5. **Clear the old ciphertext.** Re-encrypt the retained archives, or delete them:
+   the 6-hourly timer rebuilds four generations within a day. Do it on the node, the
+   laptop and the off-site copy — the exposed key matters only while files it opens
+   still exist.
+6. **Destroy the retired identity** everywhere.
+
+## Inspecting secrets without leaking them
+
+Never pipe a secret to the terminal. Redact in the pipeline:
+
+```bash
+kubectl -n <ns> get secret <name> -o jsonpath='{.data.<key>}' | base64 -d \
+  | sed -E 's#(https://discord(app)?\.com/api/webhooks/[0-9]+/)[A-Za-z0-9_.-]+#\1REDACTED#g'
+```
+
+Terminal output ends up in transcripts, tickets and screenshots. Redact at the
+source, because you cannot un-share a credential — you can only rotate it.
