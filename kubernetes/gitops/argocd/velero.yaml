@@ -9,7 +9,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
-    targetRevision: feature/ubuntu-template
+    targetRevision: main
     path: kubernetes/platform/velero
     helm:
       releaseName: velero

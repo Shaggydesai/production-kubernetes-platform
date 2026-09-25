@@ -8,7 +8,7 @@ spec:
 
   source:
     repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
-    targetRevision: feature/ubuntu-template
+    targetRevision: main
     path: kubernetes/applications/hermes-demo
     directory:
       recurse: true

@@ -2,10 +2,15 @@ name: taskflow-api CI/CD
 
 on:
   push:
-    branches: [feature/ubuntu-template]
+    branches: [main]
     paths:
       - 'apps/taskflow-api/**'
       - '.github/workflows/taskflow-api-ci.yml'
+  # No paths filter here on purpose: `test` is a required status check, and a
+  # filtered workflow never starts on unrelated PRs, so the check would sit
+  # "expected" forever and block the merge.
+  pull_request:
+    branches: [main]
 
 env:
   IMAGE_NAME: ghcr.io/shaggydesai/taskflow-api
@@ -34,10 +39,13 @@ jobs:
 
   build-and-push:
     needs: test
+    # never build or publish from a pull request
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -61,13 +69,30 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.sha_short }}
             ${{ env.IMAGE_NAME }}:latest
 
-      - name: Update GitOps manifest with new image tag
+      # main is protected, so CI cannot push to it. Open a PR instead: one path
+      # into main, and the manifest bump is reviewable like any other change.
+      # Longer term this job goes away in favour of Argo CD Image Updater with
+      # write-back-method: argocd, which needs no Git write at all.
+      - name: Open a PR with the new image tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           sed -i "s|image: ${{ env.IMAGE_NAME }}:.*|image: ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.sha_short }}|" \
             kubernetes/applications/taskflow-api/deployment.yaml
 
-          git config user.name "github-actions[bot]"
+          if git diff --quiet; then
+            echo "manifest already at ${{ steps.vars.outputs.sha_short }}, nothing to do"
+            exit 0
+          fi
+
+          BRANCH="ci/bump-taskflow-api-${{ steps.vars.outputs.sha_short }}"
+          git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
           git add kubernetes/applications/taskflow-api/deployment.yaml
-          git diff --staged --quiet || git commit -m "ci: bump taskflow-api image to ${{ steps.vars.outputs.sha_short }}"
-          git push
+          git commit -m "ci: bump taskflow-api image to ${{ steps.vars.outputs.sha_short }}"
+          git push origin "$BRANCH"
+
+          gh pr create --base main --head "$BRANCH" \
+            --title "ci: bump taskflow-api image to ${{ steps.vars.outputs.sha_short }}" \
+            --body "Automated image bump from ${{ github.sha }}. Merging this is what actually deploys it."
