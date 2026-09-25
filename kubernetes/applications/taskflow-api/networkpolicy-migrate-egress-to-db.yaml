@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-taskflow-migrate-egress-to-postgresql
+  namespace: taskflow
+  annotations:
+    # Must exist before the Job's pod starts, or default-deny-all drops its
+    # traffic and the migration appears to hang on connect.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  # The Job cannot reuse app=taskflow-api: the Service selects that label, so
+  # the Job's pod would join the Service endpoints with nothing on port 8080.
+  podSelector:
+    matchLabels:
+      app: taskflow-api-migrate
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+  # DNS is already granted to every pod in the namespace by allow-dns.

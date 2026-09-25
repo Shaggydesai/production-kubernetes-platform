@@ -73,12 +73,20 @@ jobs:
       # into main, and the manifest bump is reviewable like any other change.
       # Longer term this job goes away in favour of Argo CD Image Updater with
       # write-back-method: argocd, which needs no Git write at all.
+      #
+      # NOTE: a PR opened with GITHUB_TOKEN does not trigger workflow runs
+      # (GitHub's anti-recursion rule), so the required 'test' context never
+      # appears and the PR cannot be merged. Until this uses a GitHub App
+      # token via actions/create-github-app-token, unblock each bump PR with
+      # an empty commit pushed under a user credential:
+      #   git commit --allow-empty -m "ci: fire required checks" && git push
       - name: Open a PR with the new image tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           sed -i "s|image: ${{ env.IMAGE_NAME }}:.*|image: ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.sha_short }}|" \
-            kubernetes/applications/taskflow-api/deployment.yaml
+            kubernetes/applications/taskflow-api/deployment.yaml \
+            kubernetes/applications/taskflow-api/job-migrate.yaml
 
           if git diff --quiet; then
             echo "manifest already at ${{ steps.vars.outputs.sha_short }}, nothing to do"
@@ -89,7 +97,8 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add kubernetes/applications/taskflow-api/deployment.yaml
+          git add kubernetes/applications/taskflow-api/deployment.yaml \
+                  kubernetes/applications/taskflow-api/job-migrate.yaml
           git commit -m "ci: bump taskflow-api image to ${{ steps.vars.outputs.sha_short }}"
           git push origin "$BRANCH"
 

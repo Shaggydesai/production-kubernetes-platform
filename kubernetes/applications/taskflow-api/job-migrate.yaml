@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: taskflow-api-migrate
+  namespace: taskflow
+  annotations:
+    # Wave 0: after the ExternalSecret (-1) that supplies the password, before
+    # the Deployment (1). Argo CD marks a Job Healthy only once it has completed
+    # successfully, so new pods cannot start against an unmigrated schema.
+    #
+    # Deliberately NOT a PreSync hook: hooks run before the sync phase, which is
+    # when the ExternalSecret is created. On a from-scratch install a hook would
+    # start before the Secret existed and fail the entire sync.
+    argocd.argoproj.io/sync-wave: "0"
+    # A Job's pod template is immutable, so an image bump cannot be patched in.
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 3
+  # Fail rather than hang. golang-migrate waits on a Postgres advisory lock; if
+  # something else holds it, this Job would otherwise block wave 0 forever and
+  # the stuck pod would look perfectly healthy.
+  activeDeadlineSeconds: 300
+  # No ttlSecondsAfterFinished on purpose: if the TTL controller deleted this
+  # Job, Argo CD would see a missing resource, go OutOfSync, and recreate it on
+  # every reconcile. Argo owns this Job's lifecycle.
+  template:
+    metadata:
+      labels:
+        # Not app=taskflow-api: the Service selects that label, so this pod
+        # would join the Service endpoints with nothing listening on 8080.
+        app: taskflow-api-migrate
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: migrate
+          image: ghcr.io/shaggydesai/taskflow-api:57f8b24
+          args: ["migrate", "up"]
+          env:
+            - name: DB_HOST
+              value: postgresql.taskflow.svc
+            - name: DB_USER
+              value: taskflow
+            - name: DB_NAME
+              value: taskflow
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: taskflow-api-credentials
+                  key: db-password
+            # No JWT_SECRET: migrations have no use for it.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              # Memory only. A CPU limit would just make a short job slower.
+              memory: 128Mi
