@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: taskflow-api
   namespace: taskflow
+  annotations:
+    # Wave 1: only after the migration Job in wave 0 has completed.
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   replicas: 2
   selector:
