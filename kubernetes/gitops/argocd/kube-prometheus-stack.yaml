@@ -10,7 +10,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
-    targetRevision: feature/ubuntu-template
+    targetRevision: main
     path: kubernetes/platform/kube-prometheus-stack
     helm:
       releaseName: kube-prometheus-stack
