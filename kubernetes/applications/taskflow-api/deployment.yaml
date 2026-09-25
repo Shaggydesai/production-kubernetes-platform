@@ -17,7 +17,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: taskflow-api
-          image: ghcr.io/shaggydesai/taskflow-api:66e6d26
+          image: ghcr.io/shaggydesai/taskflow-api:57f8b24
           ports:
             - containerPort: 8080
           env:
