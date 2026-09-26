@@ -57,6 +57,69 @@ kube-prometheus-stack:
                 severity: warning
               annotations:
                 summary: "No Argo CD metrics: the controller or its ServiceMonitor may be broken"
+    taskflow-api:
+      groups:
+        - name: taskflow-api
+          rules:
+            - alert: TaskflowApiErrorRate
+              expr: >-
+                sum(rate(taskflow_http_requests_total{code=~"5..",
+                route!~"/healthz|/readyz"}[5m]))
+                / sum(rate(taskflow_http_requests_total{
+                route!~"/healthz|/readyz"}[5m])) > 0.05
+              for: 10m
+              labels:
+                severity: warning
+              annotations:
+                summary: "taskflow-api is returning over 5% 5xx"
+                description: >-
+                  Added after 2026-09-25, when every data endpoint returned 500
+                  for eight hours against a schemaless database and nothing
+                  alerted, because the app exposed no request metrics at all.
+                  Probe routes are excluded: with two replicas they generate
+                  ~20 requests/min, which would dilute a real spike in a lab
+                  with almost no organic traffic below the threshold.
+            - alert: TaskflowApiMostlyFailing
+              expr: >-
+                sum(rate(taskflow_http_requests_total{code=~"5..",
+                route!~"/healthz|/readyz"}[5m]))
+                / sum(rate(taskflow_http_requests_total{
+                route!~"/healthz|/readyz"}[5m])) > 0.5
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "taskflow-api is failing more than half of all requests"
+            - alert: TaskflowApiTargetDown
+              expr: up{job="taskflow-api"} == 0
+              for: 10m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Prometheus cannot scrape taskflow-api {{ $labels.instance }}"
+                description: >-
+                  Check the metrics port, the ServiceMonitor's release label and
+                  allow-monitoring-to-taskflow-api-metrics.
+            - alert: TaskflowApiMetricsMissing
+              expr: absent(up{job="taskflow-api"})
+              for: 30m
+              labels:
+                severity: warning
+              annotations:
+                summary: "No taskflow-api scrape target exists at all"
+                description: >-
+                  The ServiceMonitor is missing, mislabelled, or selecting
+                  nothing. Deliberately on 'up' rather than on a request
+                  counter: an idle app legitimately reports no requests.
+            - alert: TaskflowApiNoAvailableReplicas
+              expr: >-
+                kube_deployment_status_replicas_available{namespace="taskflow",
+                deployment="taskflow-api"} < 1
+              for: 10m
+              labels:
+                severity: critical
+              annotations:
+                summary: "taskflow-api has no available replicas"
     workload-restarts:
       groups:
         - name: workload-restarts

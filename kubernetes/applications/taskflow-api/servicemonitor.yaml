@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: taskflow-api
+  namespace: taskflow
+  labels:
+    # REQUIRED. The Prometheus CR selects ServiceMonitors with
+    # matchLabels release=kube-prometheus-stack, the chart default when
+    # serviceMonitorSelectorNilUsesHelmValues is left unset. Without this label
+    # the ServiceMonitor is ignored silently: no error, no target, no metrics.
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: taskflow-api
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

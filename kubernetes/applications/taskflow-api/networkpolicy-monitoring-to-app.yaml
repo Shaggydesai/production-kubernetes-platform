@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-to-taskflow-api-metrics
+  namespace: taskflow
+spec:
+  # Without this, default-deny-all drops Prometheus's scrapes and the target
+  # simply times out. A ServiceMonitor alone is not enough in a namespace with
+  # a default-deny Ingress policy.
+  podSelector:
+    matchLabels:
+      app: taskflow-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090

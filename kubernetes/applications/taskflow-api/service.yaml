@@ -7,5 +7,10 @@ spec:
   selector:
     app: taskflow-api
   ports:
-    - port: 80
+    # Named because a ServiceMonitor references ports by name.
+    - name: http
+      port: 80
       targetPort: 8080
+    - name: metrics
+      port: 9090
+      targetPort: 9090
