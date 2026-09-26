@@ -1,0 +1,34 @@
+# Managed by Ansible - roles/containerd_runtime
+#
+# DELIBERATELY MINIMAL. containerd applies its built-in defaults and then
+# overlays this file, so only the settings we actually decide appear here. A
+# full `containerd config default` dump would be ~200 lines of values we do not
+# care about, version-specific, and impossible to review in a diff.
+#
+# Because that behaviour is load-bearing, the role does not trust this file: it
+# asserts against `containerd config dump`, which is the EFFECTIVE config.
+
+version = 3
+
+[plugins.'io.containerd.cri.v1.images']
+  [plugins.'io.containerd.cri.v1.images'.pinned_images]
+    # Must match what kubeadm expects. A mismatch leaves pods in
+    # ContainerCreating with an image-pull error for registry.k8s.io/pause, and
+    # nothing in the kubelet log says the sandbox image is the problem.
+    sandbox = '{{ pause_image }}'
+
+[plugins.'io.containerd.cri.v1.runtime']
+  [plugins.'io.containerd.cri.v1.runtime'.containerd]
+    default_runtime_name = 'runc'
+    [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc]
+      runtime_type = 'io.containerd.runc.v2'
+      [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+        # Must agree with the kubelet's cgroupDriver. If they disagree, the
+        # kubelet and containerd each create their own cgroup hierarchy and
+        # pods fail in ways that point everywhere except here.
+        SystemdCgroup = true
+
+# NOTE the plugin names: containerd 2.x uses io.containerd.cri.v1.*, while
+# almost every guide still shows io.containerd.grpc.v1.cri from 1.x. The old
+# names are not an error - they are simply ignored, and the setting you thought
+# you made never applies.

@@ -1,0 +1,5 @@
+---
+control_plane_kubeadm_config: /etc/kubernetes/kubeadm-config.yaml
+control_plane_admin_conf: /etc/kubernetes/admin.conf
+# Who gets ~/.kube/config. Set cluster_admin_user in group_vars.
+control_plane_kubeconfig_owner: "{{ cluster_admin_user | default(ansible_user) }}"

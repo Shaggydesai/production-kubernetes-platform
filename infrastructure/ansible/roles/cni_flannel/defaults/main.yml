@@ -1,0 +1,3 @@
+---
+cni_flannel_manifest: /etc/kubernetes/cni-flannel.yaml
+cni_flannel_admin_conf: /etc/kubernetes/admin.conf

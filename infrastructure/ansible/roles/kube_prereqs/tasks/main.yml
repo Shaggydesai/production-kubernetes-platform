@@ -1,0 +1,167 @@
+---
+# --- kernel ------------------------------------------------------------------
+
+# Builtins only. ansible-core ships neither community.general nor
+# ansible.posix, and every existing role in this repo uses builtins - adding a
+# collection dependency for modprobe and sysctl would make the bootstrap need a
+# `ansible-galaxy install` step before it can run at all.
+
+- name: Load them on every boot
+  ansible.builtin.copy:
+    content: "{{ kube_prereqs_modules | join('\n') }}\n"
+    dest: /etc/modules-load.d/k8s.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Load the required kernel modules now  # noqa: command-instead-of-module
+  ansible.builtin.command: "modprobe {{ item }}"
+  loop: "{{ kube_prereqs_modules }}"
+  register: kube_prereqs_modprobe
+  changed_when: false
+
+- name: Write the Kubernetes sysctls
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible - roles/kube_prereqs
+      # br_netfilter must be loaded before these exist at all; setting them
+      # first fails with "No such file or directory", which reads like a
+      # permissions problem and is not one.
+      {% for k, v in kube_prereqs_sysctls.items() %}
+      {{ k }} = {{ v }}
+      {% endfor %}
+    dest: "{{ kube_prereqs_sysctl_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sysctl
+
+- name: Apply them before verifying
+  ansible.builtin.meta: flush_handlers
+
+- name: Confirm the bridge sysctls took effect  # noqa: command-instead-of-module
+  ansible.builtin.command: "sysctl -n {{ item }}"
+  loop:
+    - net.bridge.bridge-nf-call-iptables
+    - net.ipv4.ip_forward
+  register: kube_prereqs_sysctl_check
+  changed_when: false
+
+- name: Every sysctl must read 1
+  ansible.builtin.assert:
+    that:
+      - item.stdout == '1'
+    fail_msg: "{{ item.item }} is '{{ item.stdout }}', expected '1'."
+  loop: "{{ kube_prereqs_sysctl_check.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# --- swap --------------------------------------------------------------------
+
+- name: Disable swap now
+  ansible.builtin.command: swapoff -a
+  register: kube_prereqs_swapoff
+  changed_when: false          # harmless and idempotent when swap is already off
+
+- name: Remove swap from fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+- name: Swap must be off
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['swaptotal_mb'] | int == 0 or kube_prereqs_swapoff.rc == 0
+    fail_msg: >-
+      Swap is still enabled. kubeadm refuses to run with swap on unless
+      explicitly configured otherwise, and the error it gives is a preflight
+      failure rather than an explanation.
+
+# --- Kubernetes packages ------------------------------------------------------
+
+- name: Dependencies for the Kubernetes apt repository
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gpg
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Fetch the Kubernetes signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_apt_channel }}/deb/Release.key"
+    dest: /tmp/kubernetes-release.key
+    mode: "0644"
+
+- name: Convert it to a keyring
+  ansible.builtin.command: >-
+    gpg --batch --yes --dearmor
+    -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes-release.key
+  args:
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- name: Add the Kubernetes repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg]
+      https://pkgs.k8s.io/core:/stable:/{{ kubernetes_apt_channel }}/deb/ /
+    filename: kubernetes
+    state: present
+    update_cache: true
+
+- name: Remove the downloaded key
+  ansible.builtin.file:
+    path: /tmp/kubernetes-release.key
+    state: absent
+
+# Unpinned Kubernetes packages are how a node silently ends up a minor version
+# ahead of its control plane after an unattended upgrade.
+- name: Install the pinned Kubernetes packages
+  ansible.builtin.apt:
+    name:
+      - "kubeadm={{ kubernetes_apt_version }}"
+      - "kubelet={{ kubernetes_apt_version }}"
+      - "kubectl={{ kubernetes_apt_version }}"
+    state: present
+    allow_downgrade: true
+
+- name: Hold them at that version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubeadm
+    - kubelet
+    - kubectl
+
+- name: Enable the kubelet
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true
+  # Deliberately not started: before kubeadm runs there is no config, so the
+  # kubelet crash-loops. kubeadm starts it once it has something to read.
+
+# --- storage prerequisites ----------------------------------------------------
+
+- name: Install the Longhorn node prerequisites
+  ansible.builtin.apt:
+    name: "{{ kube_prereqs_storage_packages }}"
+    state: present
+
+- name: Enable iscsid
+  ansible.builtin.systemd:
+    name: iscsid
+    enabled: true
+    state: started

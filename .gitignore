@@ -38,3 +38,7 @@ temp/
 
 # Backup files
 *.bak
+# Ansible: the operator's actual values. group_vars/all.example.yml is the
+# contract and IS committed; all.yml holds their IPs, user and endpoints.
+infrastructure/ansible/group_vars/all.yml
+infrastructure/ansible/inventory/lab.yml

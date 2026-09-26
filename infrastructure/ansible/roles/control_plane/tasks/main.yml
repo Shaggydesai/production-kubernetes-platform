@@ -1,0 +1,78 @@
+---
+- name: Has the control plane already been initialised?
+  ansible.builtin.stat:
+    path: "{{ control_plane_admin_conf }}"
+  register: control_plane_admin
+
+- name: Write the kubeadm configuration
+  ansible.builtin.template:
+    src: kubeadm-config.yaml.j2
+    dest: "{{ control_plane_kubeadm_config }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+# The config is written even on an initialised cluster, deliberately: it keeps
+# the file on disk in step with Git, so `kubeadm upgrade apply --config` and any
+# future diff have something truthful to read.
+
+- name: Initialise the control plane
+  ansible.builtin.command: >-
+    kubeadm init --config {{ control_plane_kubeadm_config }}
+    --upload-certs
+  register: control_plane_init
+  changed_when: true
+  when: not control_plane_admin.stat.exists
+
+# Not a handler: this is output about the task that just ran, and a
+# handler would print it at the end of the play, detached from context.
+- name: Show what kubeadm did  # noqa: no-handler
+  ansible.builtin.debug:
+    msg: "{{ control_plane_init.stdout_lines[-12:] }}"
+  when: control_plane_init is changed
+
+- name: Create .kube for the admin user
+  ansible.builtin.file:
+    path: "/home/{{ control_plane_kubeconfig_owner }}/.kube"
+    state: directory
+    owner: "{{ control_plane_kubeconfig_owner }}"
+    group: "{{ control_plane_kubeconfig_owner }}"
+    mode: "0700"
+
+- name: Give the admin user a kubeconfig
+  ansible.builtin.copy:
+    src: "{{ control_plane_admin_conf }}"
+    dest: "/home/{{ control_plane_kubeconfig_owner }}/.kube/config"
+    remote_src: true
+    owner: "{{ control_plane_kubeconfig_owner }}"
+    group: "{{ control_plane_kubeconfig_owner }}"
+    mode: "0600"
+
+- name: Wait for the API server to answer
+  ansible.builtin.command: >-
+    kubectl --kubeconfig {{ control_plane_admin_conf }} get --raw /readyz
+  register: control_plane_readyz
+  changed_when: false
+  retries: 30
+  delay: 5
+  until: control_plane_readyz.rc == 0
+
+# --- verification ------------------------------------------------------------
+
+- name: Read back what kubeadm recorded
+  ansible.builtin.command: >-
+    kubectl --kubeconfig {{ control_plane_admin_conf }}
+    -n kube-system get cm kubeadm-config -o jsonpath={.data.ClusterConfiguration}
+  register: control_plane_cm
+  changed_when: false
+
+- name: The leader-election settings must be in kubeadm-config, not only in the manifests
+  ansible.builtin.assert:
+    that:
+      - "'leader-elect-lease-duration' in control_plane_cm.stdout"
+      - "control_plane_endpoint in control_plane_cm.stdout"
+    fail_msg: >-
+      kubeadm-config does not contain the control-plane tuning. That is the
+      exact defect this role exists to prevent: settings present only in
+      /etc/kubernetes/manifests are discarded by `kubeadm upgrade apply`,
+      which then reports success.

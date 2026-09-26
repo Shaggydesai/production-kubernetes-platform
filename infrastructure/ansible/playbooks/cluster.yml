@@ -1,0 +1,62 @@
+---
+# Builds the Kubernetes cluster on guests that already exist.
+#
+#   terraform -chdir=../terraform output -raw ansible_inventory > inventory/lab.yml
+#   ansible-playbook -i inventory/lab.yml playbooks/cluster.yml
+#
+# Run AFTER infrastructure/terraform has created the guests and BEFORE
+# playbooks/hosts.yml, which configures backups and metrics on a cluster that
+# by then exists.
+#
+# Safe to re-run: kubeadm init and join are both guarded on the files they
+# produce, so a second run configures and verifies without touching the cluster.
+
+- name: Container runtime and Kubernetes packages
+  hosts: all
+  become: true
+  roles:
+    - containerd_runtime
+    - kube_prereqs
+
+- name: Initialise the control plane
+  hosts: control_plane
+  become: true
+  roles:
+    - control_plane
+    - cni_flannel
+
+- name: Join the workers
+  hosts: workers
+  become: true
+  roles:
+    - worker
+
+- name: Verify the cluster
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for every node to report Ready
+      ansible.builtin.command: >-
+        kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes
+        --no-headers -o custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type
+      register: cluster_nodes
+      changed_when: false
+      retries: 30
+      delay: 10
+      until:
+        - cluster_nodes.rc == 0
+        - cluster_nodes.stdout_lines | length == groups['all'] | length
+        - cluster_nodes.stdout_lines | select('search', 'NotReady') | list | length == 0
+
+    - name: Show the cluster
+      ansible.builtin.debug:
+        msg: "{{ cluster_nodes.stdout_lines }}"
+
+    - name: Next step
+      ansible.builtin.debug:
+        msg: >-
+          Cluster is up. Now bootstrap the platform:
+          kubectl apply -f kubernetes/gitops/bootstrap/platform-root.yaml
+          then unseal Vault - nothing that needs a rendered Secret will start
+          until you do. See ADR-006 decision 7.
