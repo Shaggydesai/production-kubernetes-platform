@@ -45,7 +45,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: migrate
-          image: ghcr.io/shaggydesai/taskflow-api:77c5acc
+          image: ghcr.io/shaggydesai/taskflow-api:483f142
           args: ["migrate", "up"]
           env:
             - name: DB_HOST
