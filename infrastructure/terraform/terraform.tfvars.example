@@ -1,0 +1,38 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored:
+# it holds your key and your addresses, not mine.
+
+# Required -----------------------------------------------------------------
+
+admin_user     = "sagar"
+ssh_public_key = "ssh-ed25519 AAAAC3Nza... you@your-host"
+
+# Recommended --------------------------------------------------------------
+
+# Point this at a local, checksum-verified copy of the Ubuntu 24.04 cloud
+# image once you have downloaded one. The default URL is a moving target:
+#
+#   curl -LO https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img
+#   curl -L  https://cloud-images.ubuntu.com/releases/noble/release/SHA256SUMS | \
+#     grep ubuntu-24.04-server-cloudimg-amd64.img | sha256sum -c -
+#
+# base_image_source = "/var/lib/libvirt/images/ubuntu-24.04-server-cloudimg-amd64.img"
+
+# Put guest disks on the SSD, not wherever `default` happens to point.
+# storage_pool = "ssd"
+
+# Optional ----------------------------------------------------------------
+
+# autostart_domains = true
+
+# Only change these if 192.168.75.0/24 collides with your LAN. If you do, you
+# must also update the MetalLB pool, the Gateway, the Ansible inventory and
+# every runbook that quotes an address. See ADR-006 decision 3.
+#
+# network_cidr    = "192.168.75.0/24"
+# network_gateway = "192.168.75.1"
+#
+# nodes = {
+#   k8s-cp01     = { ip = "192.168.75.136", vcpu = 4, memory = 8192, disk_gb = 60, role = "control-plane" }
+#   k8s-worker01 = { ip = "192.168.75.137", vcpu = 3, memory = 8192, disk_gb = 80, role = "worker" }
+#   k8s-worker02 = { ip = "192.168.75.138", vcpu = 3, memory = 8192, disk_gb = 80, role = "worker" }
+# }
