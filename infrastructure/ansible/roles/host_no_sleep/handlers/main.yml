@@ -1,0 +1,9 @@
+---
+# Restarting logind does not end existing sessions on modern systemd, but it
+# does briefly interrupt seat management. Harmless on a lab host; worth knowing
+# before running this over a graphical session.
+- name: Restart logind
+  ansible.builtin.systemd:
+    name: systemd-logind
+    state: restarted
+    daemon_reload: true

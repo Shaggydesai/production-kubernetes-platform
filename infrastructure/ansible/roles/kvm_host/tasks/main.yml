@@ -1,0 +1,78 @@
+---
+- name: Install KVM and libvirt
+  ansible.builtin.apt:
+    name: "{{ kvm_host_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Collect service facts
+  ansible.builtin.service_facts:
+
+# Ubuntu ships both the monolithic libvirtd and the modular daemons
+# (virtqemud, virtnetworkd, virtstoraged) depending on release and how the
+# packages were installed. Enable whichever is actually present instead of
+# hardcoding one and failing on the other.
+- name: Enable and start the libvirt daemon
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - libvirtd
+  when: "'libvirtd.service' in ansible_facts.services"
+
+- name: Enable and start the modular libvirt daemons
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - virtqemud
+    - virtnetworkd
+    - virtstoraged
+  when:
+    - "'libvirtd.service' not in ansible_facts.services"
+    - (item ~ '.service') in ansible_facts.services
+  failed_when: false
+
+- name: Add the admin user to the libvirt and kvm groups
+  ansible.builtin.user:
+    name: "{{ host_admin_user }}"
+    groups: libvirt,kvm
+    append: true
+
+- name: Turn off libvirt's default network
+  ansible.builtin.command: "virsh --connect qemu:///system {{ item }}"
+  loop:
+    - net-destroy default
+    - net-autostart --disable default
+  register: kvm_host_default_net
+  changed_when: kvm_host_default_net.rc == 0
+  failed_when: false
+  when: kvm_host_disable_default_network | bool
+
+# --- verification -----------------------------------------------------------
+
+- name: /dev/kvm must exist
+  ansible.builtin.stat:
+    path: /dev/kvm
+  register: kvm_host_devkvm
+
+- name: Fail if KVM is not usable
+  ansible.builtin.assert:
+    that:
+      - kvm_host_devkvm.stat.exists
+    fail_msg: >-
+      /dev/kvm is missing even though the CPU reports virtualisation support.
+      Check that the kvm_intel or kvm_amd module is loaded (lsmod | grep kvm)
+      and that virtualisation is enabled in firmware.
+
+- name: Verify libvirt answers
+  ansible.builtin.command: virsh --connect qemu:///system version
+  register: kvm_host_virsh_version
+  changed_when: false
+
+- name: Show the libvirt version
+  ansible.builtin.debug:
+    msg: "{{ kvm_host_virsh_version.stdout_lines }}"

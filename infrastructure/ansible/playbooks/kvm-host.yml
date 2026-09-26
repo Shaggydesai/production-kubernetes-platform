@@ -1,0 +1,75 @@
+---
+# Prepares the Ubuntu host that runs the lab: KVM, libvirt, a storage pool on
+# the SSD, Terraform, and the sleep settings that stop the host suspending with
+# guests running.
+#
+# Runs against the host ITSELF, not the guests - so it must be run before the
+# VMs exist. That is why it uses a local connection rather than the inventory
+# in inventory/production.yml, which describes the guests.
+#
+#   ansible-playbook playbooks/kvm-host.yml -K
+#
+# -K because almost everything here needs root. Nothing in this playbook
+# touches the cluster; it is safe to re-run.
+#
+# This replaces infrastructure/laptop/set-power-policy.ps1, which only applied
+# while the host ran Windows. See ADR-006.
+
+- name: Prepare the KVM host
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    # Override on the command line or in a vars file:
+    #   -e libvirt_pool_path=/srv/vms -e host_admin_user=sagar
+    # Read from the CONTROLLER's environment. ansible_user_id would be 'root'
+    # here, because facts are gathered after become - and adding root to the
+    # libvirt group helps nobody.
+    host_admin_user: "{{ lookup('env', 'USER') }}"
+
+  pre_tasks:
+    - name: This playbook targets Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Ubuntu'
+        fail_msg: >-
+          Written and tested for Ubuntu 24.04. Package names and the systemd
+          unit layout differ elsewhere; adapt rather than assume.
+
+    - name: The admin user must be a real user
+      ansible.builtin.assert:
+        that:
+          - host_admin_user | length > 0
+          - host_admin_user != 'root'
+        fail_msg: >-
+          host_admin_user resolved to '{{ host_admin_user }}'. Pass it
+          explicitly: -e host_admin_user=yourname
+
+    - name: The CPU must support hardware virtualisation
+      ansible.builtin.assert:
+        that:
+          - "'vmx' in ansible_facts['processor_flags'] or 'svm' in ansible_facts['processor_flags']"
+        fail_msg: >-
+          Neither vmx (Intel VT-x) nor svm (AMD-V) is present. Either the CPU
+          does not support it or it is disabled in firmware. KVM cannot run
+          without it, and enabling it means a BIOS/UEFI visit - so fail here
+          rather than three roles later with a confusing libvirt error.
+
+  roles:
+    - role: kvm_host
+    - role: host_no_sleep
+    - role: libvirt_pool
+    - role: terraform_cli
+
+  post_tasks:
+    - name: Group membership only takes effect on a new login
+      ansible.builtin.debug:
+        msg: >-
+          {{ host_admin_user }} was added to the libvirt and kvm groups, but the
+          current shell still has the old set. Log out and back in, then confirm
+          with: virsh --connect qemu:///system list --all
+          If that needs sudo, the groups have not taken effect yet and Terraform
+          will fail with a permission error that looks like a Terraform problem
+          and is not one.

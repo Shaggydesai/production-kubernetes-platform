@@ -1,0 +1,4 @@
+---
+terraform_cli_install: true
+terraform_cli_keyring: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+terraform_cli_repo_url: https://apt.releases.hashicorp.com
