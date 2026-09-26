@@ -1,0 +1,59 @@
+---
+# Terraform belongs on the HOST that talks to libvirt, not inside a guest.
+# Installed from HashiCorp's apt repository rather than the snap, which is
+# published with classic confinement.
+
+- name: Skip if not wanted
+  ansible.builtin.meta: end_play
+  when: not (terraform_cli_install | bool)
+
+- name: Dependencies for an apt repository over HTTPS
+  ansible.builtin.apt:
+    name:
+      - gnupg
+      - software-properties-common
+      - curl
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Fetch the HashiCorp signing key
+  ansible.builtin.get_url:
+    url: "{{ terraform_cli_repo_url }}/gpg"
+    dest: /tmp/hashicorp.asc
+    mode: "0644"
+  register: terraform_cli_key
+
+- name: Convert the key to a keyring
+  ansible.builtin.command: >-
+    gpg --batch --yes --dearmor -o {{ terraform_cli_keyring }} /tmp/hashicorp.asc
+  args:
+    creates: "{{ terraform_cli_keyring }}"
+
+- name: Add the repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by={{ terraform_cli_keyring }}]
+      {{ terraform_cli_repo_url }} {{ ansible_facts['distribution_release'] }} main
+    filename: hashicorp
+    state: present
+    update_cache: true
+
+- name: Install Terraform
+  ansible.builtin.apt:
+    name: terraform
+    state: present
+
+- name: Remove the downloaded key
+  ansible.builtin.file:
+    path: /tmp/hashicorp.asc
+    state: absent
+
+- name: Check the version
+  ansible.builtin.command: terraform version
+  register: terraform_cli_version
+  changed_when: false
+
+- name: Show it
+  ansible.builtin.debug:
+    msg: "{{ terraform_cli_version.stdout_lines | first }}"

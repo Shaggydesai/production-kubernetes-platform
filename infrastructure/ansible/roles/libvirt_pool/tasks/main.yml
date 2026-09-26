@@ -1,0 +1,76 @@
+---
+# virsh rather than community.libvirt.virt_pool, to avoid requiring a
+# collection install before the host is even set up. The idempotency is
+# explicit: ask whether the pool exists, act only if it does not.
+
+- name: Ensure the pool directory exists
+  ansible.builtin.file:
+    path: "{{ libvirt_pool_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0711"
+
+- name: Is the pool already defined?
+  ansible.builtin.command: "virsh --connect {{ libvirt_pool_uri }} pool-info {{ libvirt_pool_name }}"
+  register: libvirt_pool_info
+  changed_when: false
+  failed_when: false
+
+- name: Define the pool
+  # runs only when the pool is absent, and then it genuinely changes state
+  ansible.builtin.command: >-
+    virsh --connect {{ libvirt_pool_uri }}
+    pool-define-as {{ libvirt_pool_name }} dir --target {{ libvirt_pool_path }}
+  when: libvirt_pool_info.rc != 0
+  changed_when: true
+
+- name: Build the pool
+  # runs only when the pool is absent, and then it genuinely changes state
+  ansible.builtin.command: "virsh --connect {{ libvirt_pool_uri }} pool-build {{ libvirt_pool_name }}"
+  when: libvirt_pool_info.rc != 0
+  changed_when: true
+  failed_when: false
+
+- name: Start the pool
+  # runs only when the pool is absent, and then it genuinely changes state
+  ansible.builtin.command: "virsh --connect {{ libvirt_pool_uri }} pool-start {{ libvirt_pool_name }}"
+  when: libvirt_pool_info.rc != 0
+  changed_when: true
+  failed_when: false
+
+- name: Autostart the pool
+  # runs only when the pool is absent, and then it genuinely changes state
+  ansible.builtin.command: "virsh --connect {{ libvirt_pool_uri }} pool-autostart {{ libvirt_pool_name }}"
+  when: libvirt_pool_info.rc != 0
+  changed_when: true
+
+# --- verification -----------------------------------------------------------
+
+- name: Read the pool back
+  ansible.builtin.command: "virsh --connect {{ libvirt_pool_uri }} pool-info {{ libvirt_pool_name }}"
+  register: libvirt_pool_final
+  changed_when: false
+
+- name: The pool must be running and set to autostart
+  ansible.builtin.assert:
+    that:
+      - "'State:' in libvirt_pool_final.stdout"
+      - "'running' in libvirt_pool_final.stdout"
+      - "'Autostart:     yes' in libvirt_pool_final.stdout or 'Autostart: yes' in libvirt_pool_final.stdout"
+    fail_msg: |
+      Pool {{ libvirt_pool_name }} is not running or will not autostart.
+      A pool that is defined but not started makes terraform apply fail with
+      'storage pool not found', which reads like a Terraform bug.
+      {{ libvirt_pool_final.stdout }}
+
+- name: Show the pool
+  ansible.builtin.debug:
+    msg: "{{ libvirt_pool_final.stdout_lines }}"
+
+- name: Remind about terraform.tfvars
+  ansible.builtin.debug:
+    msg: >-
+      Set storage_pool = "{{ libvirt_pool_name }}" in
+      infrastructure/terraform/terraform.tfvars, otherwise Terraform uses the
+      pool named 'default' and your guests land somewhere other than the SSD.

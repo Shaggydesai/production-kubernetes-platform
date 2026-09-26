@@ -1,0 +1,62 @@
+---
+# The Ubuntu equivalent of infrastructure/laptop/set-power-policy.ps1.
+#
+# On 2026-09-24 the host slept at 23:41 with all three guests running. On
+# resume the guests took hard SCSI errors, ext4 aborted its journals and
+# remounted the Longhorn volumes read-only, and the control plane's NIC wedged.
+# Recovery took two hours. Three of the eight Velero backups then on record had
+# failed, all of them firing late after a resume.
+# See docs/incidents/2026-09-25-host-sleep.md
+#
+# This is protection against forgetting. It does NOT replace the rule: shut the
+# guests down before closing the lid. See docs/runbooks/lab-startup-shutdown.md
+
+- name: Mask the sleep targets
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: true
+  loop: "{{ host_no_sleep_targets }}"
+
+- name: Ignore the lid and the power keys
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/logind.conf
+    regexp: "^#?{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    # logind.conf ships every setting commented out, so the regexp matches the
+    # commented line and replaces it in place. Without ^#? this would append to
+    # the end of the file, below the [Login] section header, where systemd
+    # ignores it - the failure is silent.
+    insertafter: '^\[Login\]'
+    state: present
+  loop: "{{ host_no_sleep_logind | dict2items }}"
+  notify: Restart logind
+
+# --- verification -----------------------------------------------------------
+
+# systemctl is-enabled has no module equivalent; this only reads state.
+- name: Read back the masked state  # noqa: command-instead-of-module
+  ansible.builtin.command: "systemctl is-enabled {{ item }}"
+  loop: "{{ host_no_sleep_targets }}"
+  register: host_no_sleep_mask_state
+  changed_when: false
+  failed_when: false
+
+- name: Every sleep target must report masked
+  ansible.builtin.assert:
+    that:
+      - item.stdout == 'masked'
+    fail_msg: "{{ item.item }} reports '{{ item.stdout }}', expected 'masked'."
+  loop: "{{ host_no_sleep_mask_state.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# systemctl show has no module equivalent; this only reads state.
+- name: Read back the effective logind settings  # noqa: command-instead-of-module
+  ansible.builtin.command: "systemctl show systemd-logind --property={{ item.key }}"
+  loop: "{{ host_no_sleep_logind | dict2items }}"
+  register: host_no_sleep_logind_state
+  changed_when: false
+
+- name: Show what logind will actually do
+  ansible.builtin.debug:
+    msg: "{{ host_no_sleep_logind_state.results | map(attribute='stdout') | list }}"

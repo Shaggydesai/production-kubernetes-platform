@@ -1,0 +1,21 @@
+---
+# Packages for a libvirt/KVM host.
+kvm_host_packages:
+  - qemu-kvm
+  - libvirt-daemon-system
+  - libvirt-clients
+  - virtinst
+  - bridge-utils
+  - ovmf
+  # The Terraform libvirt provider builds the cloud-init ISO by shelling out to
+  # mkisofs. Without it, `terraform apply` fails at libvirt_cloudinit_disk with
+  # an exec error that says nothing about a missing package.
+  - genisoimage
+  # python3-libvirt lets Ansible modules talk to libvirt directly if we ever
+  # want them to; virsh is used here to avoid a collection dependency.
+  - python3-libvirt
+
+# libvirt's own 192.168.122.0/24 network. It does not collide with the lab's
+# 192.168.75.0/24, so it is left alone by default - but on a machine dedicated
+# to this lab, turning it off removes a bridge and a dnsmasq you never use.
+kvm_host_disable_default_network: false

@@ -1,0 +1,10 @@
+---
+libvirt_pool_name: k8s-lab
+
+# Where guest disks live. The default is libvirt's own directory; on the
+# rebuild this should point at the SSD, which is the entire reason for the
+# rebuild. etcd fsync p99 on the HDD was 1,341 ms under load.
+#   -e libvirt_pool_path=/srv/vms
+libvirt_pool_path: /var/lib/libvirt/images
+
+libvirt_pool_uri: "qemu:///system"

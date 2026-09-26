@@ -1,0 +1,17 @@
+---
+# Masking makes these targets unstartable - stronger than disabling, because a
+# masked unit cannot be pulled in as a dependency by something else either.
+host_no_sleep_targets:
+  - sleep.target
+  - suspend.target
+  - hibernate.target
+  - hybrid-sleep.target
+
+# Lid, power and suspend keys. 'ignore' means the event is delivered to no
+# handler at all, so nothing suspends the machine behind your back.
+host_no_sleep_logind:
+  HandleLidSwitch: ignore
+  HandleLidSwitchDocked: ignore
+  HandleLidSwitchExternalPower: ignore
+  HandleSuspendKey: ignore
+  HandleHibernateKey: ignore
