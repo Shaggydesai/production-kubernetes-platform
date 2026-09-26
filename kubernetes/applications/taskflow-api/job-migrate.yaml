@@ -12,8 +12,18 @@ metadata:
     # when the ExternalSecret is created. On a from-scratch install a hook would
     # start before the Secret existed and fail the entire sync.
     argocd.argoproj.io/sync-wave: "0"
-    # A Job's pod template is immutable, so an image bump cannot be patched in.
-    argocd.argoproj.io/sync-options: Replace=true
+    # A Job's pod template is immutable, so an image bump cannot be patched.
+    #
+    # Replace=true alone is NOT enough: Argo then runs `kubectl replace`, which
+    # submits this manifest as the whole object. It has no spec.selector — the
+    # API server generates that on create (batch.kubernetes.io/controller-uid)
+    # and it is immutable — so replace is rejected with "selector does not match
+    # template labels". Force=true makes it `kubectl replace --force`: delete
+    # and recreate, which is what an immutable object requires.
+    #
+    # Observed 2026-09-25: without Force, the sync failed five times and, because
+    # this Job is wave 0, blocked the Deployment in wave 1 for ten hours.
+    argocd.argoproj.io/sync-options: Replace=true,Force=true
 spec:
   backoffLimit: 3
   # Fail rather than hang. golang-migrate waits on a Postgres advisory lock; if
