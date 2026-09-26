@@ -1,0 +1,40 @@
+#cloud-config
+# Minimal on purpose. cloud-init's only job is to make the guest reachable by
+# SSH with a Python interpreter present. containerd, kubeadm, kernel modules,
+# sysctls, and the Longhorn (open-iscsi, nfs-common) and Velero node
+# prerequisites are all Ansible's - see ADR-006 decision 6. Two tools
+# configuring the same host is how you get drift nobody can explain.
+
+hostname: ${hostname}
+fqdn: ${fqdn}
+prefer_fqdn_over_hostname: false
+manage_etc_hosts: true
+
+users:
+  - name: ${admin_user}
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_key}
+
+ssh_pwauth: false
+disable_root: true
+
+package_update: true
+packages:
+  - qemu-guest-agent
+  - python3
+
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent]
+
+  # kubeadm refuses to run with swap enabled. Ubuntu cloud images ship without
+  # it, so this is belt-and-braces rather than a fix - and it is here rather
+  # than in Ansible because a guest that boots with swap on has already written
+  # to it by the time Ansible connects.
+  - [swapoff, -a]
+  - [sed, -i, "/ swap / s/^/#/", /etc/fstab]
+
+final_message: "cloud-init finished in $UPTIME seconds. Ansible takes it from here."

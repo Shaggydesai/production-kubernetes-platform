@@ -1,0 +1,20 @@
+# netplan v2. Static addressing: the address lives in Git, not in a DHCP lease.
+version: 2
+ethernets:
+  primary:
+    # Matched by glob rather than named. The interface is enp1s0 on some machine
+    # types and ens3 on others; hardcoding it makes the config silently wrong on
+    # a host that differs from the one it was written on.
+    match:
+      name: "en*"
+    addresses:
+      - ${ip}/${prefix}
+    routes:
+      - to: default
+        via: ${gateway}
+    nameservers:
+      search: [${search}]
+      # The libvirt bridge runs dnsmasq, which resolves the node names and the
+      # API server name declared in the network's DNS block, then forwards
+      # everything else upstream.
+      addresses: [${dns}]

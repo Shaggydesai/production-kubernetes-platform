@@ -1,0 +1,17 @@
+# State can contain host detail and is machine-specific.
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+
+# Your values, not mine.
+terraform.tfvars
+*.auto.tfvars
+
+# .terraform.lock.hcl IS committed on purpose: it pins provider versions and
+# their checksums, which is the same reasoning as vendoring the Helm charts.
+
+# The lock file IS committed - it pins the provider version and checksum, which
+# is the whole point after ~> 0.8 silently resolved to 0.9.9. Negated here in
+# case a broader rule elsewhere would otherwise swallow it.
+!.terraform.lock.hcl
