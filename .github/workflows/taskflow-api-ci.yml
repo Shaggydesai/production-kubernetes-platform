@@ -74,15 +74,24 @@ jobs:
       # Longer term this job goes away in favour of Argo CD Image Updater with
       # write-back-method: argocd, which needs no Git write at all.
       #
-      # NOTE: a PR opened with GITHUB_TOKEN does not trigger workflow runs
-      # (GitHub's anti-recursion rule), so the required 'test' context never
-      # appears and the PR cannot be merged. Until this uses a GitHub App
-      # token via actions/create-github-app-token, unblock each bump PR with
-      # an empty commit pushed under a user credential:
-      #   git commit --allow-empty -m "ci: fire required checks" && git push
+      # The token below comes from a GitHub App, NOT secrets.GITHUB_TOKEN.
+      # GitHub suppresses workflow runs for events caused by GITHUB_TOKEN (its
+      # anti-recursion rule), so a bump PR opened with it never receives the
+      # required 'test' check and can never be merged. On 2026-09-25/26 every
+      # bump PR had to be unblocked by hand with an empty commit pushed under a
+      # user credential. An App installation token is not subject to that rule,
+      # is minted per run, and expires in an hour - so nothing long-lived is
+      # stored anywhere.
+      - name: Mint a GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
       - name: Open a PR with the new image tag
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           sed -i "s|image: ${{ env.IMAGE_NAME }}:.*|image: ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.sha_short }}|" \
             kubernetes/applications/taskflow-api/deployment.yaml \
@@ -100,6 +109,11 @@ jobs:
           git add kubernetes/applications/taskflow-api/deployment.yaml \
                   kubernetes/applications/taskflow-api/job-migrate.yaml
           git commit -m "ci: bump taskflow-api image to ${{ steps.vars.outputs.sha_short }}"
+          # actions/checkout persisted GITHUB_TOKEN credentials. Push as the App
+          # instead, so the branch and the PR are both attributed to it and the
+          # pull_request event actually fires.
+          git remote set-url origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git push origin "$BRANCH"
 
           gh pr create --base main --head "$BRANCH" \
