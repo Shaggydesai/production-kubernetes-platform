@@ -3,6 +3,11 @@ kind: Service
 metadata:
   name: taskflow-api
   namespace: taskflow
+  labels:
+    # A ServiceMonitor's spec.selector matches SERVICE metadata labels, not
+    # pod labels. Without this the ServiceMonitor selects nothing and there is
+    # no target and no error - the failure is entirely silent.
+    app: taskflow-api
 spec:
   selector:
     app: taskflow-api
