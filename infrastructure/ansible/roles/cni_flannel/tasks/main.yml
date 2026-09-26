@@ -1,0 +1,62 @@
+---
+- name: The vendored manifest must be present
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/kube-flannel.yml"
+  register: cni_flannel_local
+  delegate_to: localhost
+  become: false
+
+- name: Fail with instructions if it has not been vendored
+  ansible.builtin.assert:
+    that:
+      - cni_flannel_local.stat.exists
+    fail_msg: >-
+      roles/cni_flannel/files/kube-flannel.yml is missing. See the README in
+      that directory: the manifest is committed, not downloaded at apply time,
+      so the build does not depend on GitHub being reachable.
+
+- name: Check the manifest targets our pod subnet
+  ansible.builtin.command: "grep -c '{{ pod_subnet }}' {{ role_path }}/files/kube-flannel.yml"
+  register: cni_flannel_subnet
+  changed_when: false
+  failed_when: false
+  delegate_to: localhost
+  become: false
+
+- name: The manifest's network must match pod_subnet
+  ansible.builtin.assert:
+    that:
+      - cni_flannel_subnet.stdout | int > 0
+    fail_msg: >-
+      The vendored Flannel manifest does not mention {{ pod_subnet }}. Flannel
+      would allocate from a different range than kubeadm assigned, and pods
+      would come up unable to reach each other - with no error at install time.
+
+- name: Copy the manifest to the control plane
+  ansible.builtin.copy:
+    src: kube-flannel.yml
+    dest: "{{ cni_flannel_manifest }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Apply Flannel
+  ansible.builtin.command: >-
+    kubectl --kubeconfig {{ cni_flannel_admin_conf }}
+    apply -f {{ cni_flannel_manifest }}
+  register: cni_flannel_apply
+  changed_when: "'created' in cni_flannel_apply.stdout or 'configured' in cni_flannel_apply.stdout"
+
+- name: Wait for the Flannel DaemonSet to be ready everywhere
+  ansible.builtin.command: >-
+    kubectl --kubeconfig {{ cni_flannel_admin_conf }}
+    -n kube-flannel get ds kube-flannel-ds
+    -o jsonpath={.status.numberReady}/{.status.desiredNumberScheduled}
+  register: cni_flannel_ready
+  changed_when: false
+  retries: 30
+  delay: 10
+  until:
+    - cni_flannel_ready.rc == 0
+    - cni_flannel_ready.stdout.split('/')[0] == cni_flannel_ready.stdout.split('/')[1]
+    - cni_flannel_ready.stdout.split('/')[1] != '0'

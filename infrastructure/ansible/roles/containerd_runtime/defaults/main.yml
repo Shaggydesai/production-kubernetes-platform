@@ -1,0 +1,9 @@
+---
+# Ubuntu's containerd, not Docker's containerd.io. The running cluster uses
+# 2.2.1-0ubuntu1~24.04.3 from the distro repository; the two packages conflict
+# and lay out their configuration differently.
+containerd_runtime_packages:
+  - containerd
+  - runc
+
+containerd_runtime_config: /etc/containerd/config.toml

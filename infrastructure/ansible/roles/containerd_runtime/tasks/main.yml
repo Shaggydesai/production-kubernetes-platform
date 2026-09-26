@@ -1,0 +1,43 @@
+---
+- name: Install containerd and runc
+  ansible.builtin.apt:
+    name: "{{ containerd_runtime_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Write the containerd configuration
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: "{{ containerd_runtime_config }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart containerd
+
+- name: Apply the restart before verifying
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure containerd is enabled and running
+  ansible.builtin.systemd:
+    name: containerd
+    enabled: true
+    state: started
+
+# --- verification: the EFFECTIVE config, not the file we just wrote ---------
+
+- name: Dump the effective containerd configuration
+  ansible.builtin.command: containerd config dump
+  register: containerd_runtime_dump
+  changed_when: false
+
+- name: Verify systemd cgroups and the pause image are in effect
+  ansible.builtin.assert:
+    that:
+      - "'SystemdCgroup = true' in containerd_runtime_dump.stdout"
+      - "pause_image in containerd_runtime_dump.stdout"
+    fail_msg: >-
+      The effective containerd config does not carry our settings. Most likely
+      the plugin path in the template no longer matches this containerd version
+      (2.x uses io.containerd.cri.v1.*; 1.x used io.containerd.grpc.v1.cri).
+      Compare with: containerd config dump | grep -E 'SystemdCgroup|sandbox ='

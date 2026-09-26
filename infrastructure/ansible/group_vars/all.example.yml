@@ -1,0 +1,48 @@
+---
+# Copy to group_vars/all.yml and edit. all.yml is gitignored; this file is the
+# contract - everything a stranger must supply to build this platform.
+#
+# Values here were read off the working cluster on 2026-09-26, so the defaults
+# reproduce it exactly rather than approximating it.
+
+# --- versions. Every one is pinned; apt holds keep them there. --------------
+kubernetes_version: "1.36.3"
+kubernetes_apt_version: "1.36.3-1.1"   # dpkg-query -W -f='${Version}' kubeadm
+kubernetes_apt_channel: "v1.36"        # the pkgs.k8s.io repository stream
+
+flannel_version: "v0.28.9"
+pause_image: "registry.k8s.io/pause:3.10.1"
+
+# --- network. Must match infrastructure/terraform. --------------------------
+pod_subnet: "10.244.0.0/16"
+service_subnet: "10.96.0.0/12"
+cluster_dns_domain: "cluster.local"
+control_plane_endpoint: "k8s-api.platform.internal"
+
+# --- control-plane tuning ---------------------------------------------------
+# These exist because etcd on the HDD showed 1,341 ms fsync p99 under load, and
+# the control plane was losing its leader lease. On the SSD they should be
+# REVISITED, not inherited: measure etcd_disk_wal_fsync_duration_seconds first,
+# then lower them back toward the defaults (15s/10s/2s) if the disk allows.
+#
+# They live here, in the kubeadm config, precisely because the old cluster kept
+# them only in /etc/kubernetes/manifests - where `kubeadm upgrade apply` would
+# have silently discarded them. See ADR-006 decision 4.
+leader_elect_lease_duration: "60s"
+leader_elect_renew_deadline: "40s"
+leader_elect_retry_period: "5s"
+
+# Leaf certificates last a year by default; the CA lasts ten. Set explicitly so
+# the renewal date is a visible fact rather than a surprise.
+# Check with: kubeadm certs check-expiration
+certificate_validity_period: "8760h0m0s"
+ca_certificate_validity_period: "87600h0m0s"
+
+# --- identity. No defaults: these must not be inherited from someone else. ---
+# cluster_admin_user: sagar          # gets ~/.kube/config on the control plane
+
+# --- platform-specific workarounds ------------------------------------------
+# The e1000 Tx-hang workaround in node_tuning is a VMware thing. On KVM the
+# guests use virtio, which has no emulated NIC to hang, so it is off by default.
+# Set true only if you are still running the guests under VMware Workstation.
+node_tuning_vmware_nic_workaround: false

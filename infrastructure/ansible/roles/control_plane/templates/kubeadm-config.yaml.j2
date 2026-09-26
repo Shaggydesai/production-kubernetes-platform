@@ -1,0 +1,94 @@
+# Managed by Ansible - roles/control_plane
+#
+# EVERY control-plane setting lives here, and nothing is added to
+# /etc/kubernetes/manifests afterwards. `kubeadm upgrade apply` regenerates
+# those manifests from this configuration, so a flag that exists only in a
+# manifest is a flag an upgrade silently deletes.
+#
+# Verified on the old cluster, 2026-09-26: the leader-election settings were in
+# the manifests and NOT in kubeadm-config. An upgrade would have discarded them
+# and reported success. See ADR-006 decision 4.
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: {{ hostvars[inventory_hostname]['ansible_host'] }}
+  bindPort: 6443
+nodeRegistration:
+  criSocket: unix:///run/containerd/containerd.sock
+  kubeletExtraArgs:
+    - name: node-ip
+      value: {{ hostvars[inventory_hostname]['ansible_host'] }}
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+kubernetesVersion: v{{ kubernetes_version }}
+clusterName: kubernetes
+imageRepository: registry.k8s.io
+
+# A NAME, not an IP. The old cluster had apiServer:{} and no endpoint, which
+# baked 192.168.75.136 into every certificate. Changing the control plane's
+# address then means regenerating the PKI. See ADR-006 decision 5.
+controlPlaneEndpoint: "{{ control_plane_endpoint }}:6443"
+
+apiServer:
+  certSANs:
+    - {{ control_plane_endpoint }}
+    - {{ hostvars[inventory_hostname]['ansible_host'] }}
+    - {{ inventory_hostname }}
+    - 127.0.0.1
+
+networking:
+  dnsDomain: {{ cluster_dns_domain }}
+  podSubnet: {{ pod_subnet }}
+  serviceSubnet: {{ service_subnet }}
+
+# Leaf certs expire after certificateValidityPeriod. Stated explicitly so the
+# renewal date is a fact in Git rather than a surprise a year from now.
+#   kubeadm certs check-expiration
+certificateValidityPeriod: {{ certificate_validity_period }}
+caCertificateValidityPeriod: {{ ca_certificate_validity_period }}
+
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+    extraArgs:
+      # Bound to the node IP as well as loopback so Prometheus can scrape etcd
+      # from outside the host network namespace.
+      - name: listen-metrics-urls
+        value: http://127.0.0.1:2381,http://{{ hostvars[inventory_hostname]['ansible_host'] }}:2381
+
+controllerManager:
+  extraArgs:
+    # 0.0.0.0 rather than 127.0.0.1, so the metrics endpoint is reachable.
+    - name: bind-address
+      value: 0.0.0.0
+    - name: leader-elect-lease-duration
+      value: {{ leader_elect_lease_duration }}
+    - name: leader-elect-renew-deadline
+      value: {{ leader_elect_renew_deadline }}
+    - name: leader-elect-retry-period
+      value: {{ leader_elect_retry_period }}
+
+scheduler:
+  extraArgs:
+    - name: bind-address
+      value: 0.0.0.0
+    - name: leader-elect-lease-duration
+      value: {{ leader_elect_lease_duration }}
+    - name: leader-elect-renew-deadline
+      value: {{ leader_elect_renew_deadline }}
+    - name: leader-elect-retry-period
+      value: {{ leader_elect_retry_period }}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+# Must match SystemdCgroup in the containerd config. If these disagree, each
+# creates its own cgroup hierarchy and pods fail for reasons that point
+# anywhere but here.
+cgroupDriver: systemd
+# systemd-resolved puts a stub resolver in /etc/resolv.conf; CoreDNS forwarding
+# to a stub that forwards back to CoreDNS is a loop, and CoreDNS detects it and
+# refuses to start.
+resolvConf: /run/systemd/resolve/resolv.conf
+rotateCertificates: true

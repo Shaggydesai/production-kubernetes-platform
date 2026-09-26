@@ -1,13 +1,22 @@
 ---
 # VMware's emulated e1000 NIC hangs its transmit ring under load
 # ("Detected Tx Unit Hang"), which takes the node off the network entirely.
-# Disabling segmentation/checksum offloads avoids it. The durable fix is to
-# switch the VM's adapter to vmxnet3.
+# Disabling segmentation/checksum offloads avoids it.
+#
+# On KVM the guests use virtio, which is paravirtualised - there is no emulated
+# NIC with a transmit ring to hang - so the workaround is off by default and
+# these tasks are skipped. Set node_tuning_vmware_nic_workaround: true only if
+# the guests are still running under VMware Workstation.
+#
+# Observed on 2026-09-24 (after the host slept) and again on 2026-09-26 under
+# plain sustained I/O. See docs/incidents/2026-09-25-host-sleep.md and
+# ADR-006 decision 1.
 
 - name: Ensure ethtool is installed
   ansible.builtin.apt:
     name: ethtool
     state: present
+  when: node_tuning_vmware_nic_workaround | default(false) | bool
 
 - name: Install NIC offload unit
   ansible.builtin.copy:
@@ -17,6 +26,7 @@
     group: root
     mode: "0644"
   notify: Reload systemd
+  when: node_tuning_vmware_nic_workaround | default(false) | bool
 
 - name: Apply systemd reload before enabling the unit
   ansible.builtin.meta: flush_handlers
@@ -26,8 +36,12 @@
     name: nic-offload-off.service
     enabled: true
     state: started
-  when: not ansible_check_mode      # the unit file does not exist during --check
+  when:
+    - node_tuning_vmware_nic_workaround | default(false) | bool
+    - not ansible_check_mode      # the unit file does not exist during --check
 
+# The inotify limits are NOT VMware-specific: Kubernetes workloads exhaust the
+# defaults on any hypervisor, so this always applies.
 - name: Raise inotify limits for Kubernetes workloads
   ansible.builtin.copy:
     src: 99-k8s-inotify.conf

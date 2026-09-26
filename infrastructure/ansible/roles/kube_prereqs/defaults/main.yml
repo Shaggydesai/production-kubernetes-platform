@@ -1,0 +1,17 @@
+---
+kube_prereqs_modules:
+  - overlay        # the snapshotter's storage driver
+  - br_netfilter   # makes bridged traffic visible to iptables, which kube-proxy needs
+
+kube_prereqs_sysctl_file: /etc/sysctl.d/99-kubernetes-cri.conf
+kube_prereqs_sysctls:
+  net.bridge.bridge-nf-call-iptables: "1"
+  net.bridge.bridge-nf-call-ip6tables: "1"
+  net.ipv4.ip_forward: "1"
+
+# Longhorn attaches volumes over iSCSI and mounts some over NFS. Neither is
+# something a Helm chart can install on a node, so it belongs here.
+# See ADR-006 decision 6.
+kube_prereqs_storage_packages:
+  - open-iscsi
+  - nfs-common
