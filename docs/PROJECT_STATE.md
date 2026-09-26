@@ -65,8 +65,16 @@ verification chain: `docs/runbooks/secret-rotation.md`.
 - **Monitoring blind spot** — Prometheus stores its TSDB on a Longhorn volume,
   so it cannot observe storage incidents. `EtcdDiskCriticallySlow` did not fire
   on 2026-09-25 because Prometheus was Pending throughout.
-- **taskflow-api has no database schema.** The `daily-data` Velero schedule
-  therefore backs up an empty database, and the restore procedure has never had
-  data to restore.
+- **Velero data backups fail when the host sleeps.** 3 of the 8 backups
+  recorded on 2026-09-26 had failed: 09-24 and 09-25 `velero-daily-data` and
+  09-24 `velero-daily-metadata`. All three started ~3h after their 01:00
+  schedule, i.e. cron firing late on host resume while MinIO and Longhorn were
+  still unavailable. `velero backup logs` returns "file not found" for them:
+  they failed before uploading anything. `VeleroBackupTooOld` should have fired
+  on the resulting 39h gap and did not, because Prometheus was Pending — see
+  the monitoring blind spot above.
+- **Stale Velero BackupRepository `velero-drill-default-kopia-mptz8`** for a
+  namespace that no longer exists, running maintenance jobs every 30 minutes
+  against the HDD.
 - Empty placeholder docs: ADR-003 to ADR-005, `platform-architecture.md`,
   `roadmap.md`, `implementation-plan.md`, `interview-notes.md`. Fill or delete.
