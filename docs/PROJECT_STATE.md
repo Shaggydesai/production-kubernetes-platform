@@ -35,13 +35,34 @@ The Discord webhook value lives in Vault at `secret/alertmanager`, property
 `discord-webhook-url` — **not** `secret/discord`. Rotation procedure and the
 verification chain: `docs/runbooks/secret-rotation.md`.
 
+### Building the platform from nothing
+
+Four layers, all declarative:
+
+| Layer | Where | What |
+|---|---|---|
+| Host | `infrastructure/ansible/playbooks/kvm-host.yml` | KVM, libvirt, storage pool, sleep disabled |
+| VMs | `infrastructure/terraform` | three guests, cloud-init, static IPs |
+| Cluster | `infrastructure/ansible/playbooks/cluster.yml` | containerd, kubeadm, Flannel, join |
+| Platform | `platform-root` | Argo CD converges the rest |
+
+`make up` runs all four and stops at the Vault gate. Decisions and their
+reasoning: `docs/adr/ADR-006-bootstrap.md`. Procedure: `docs/runbooks/rebuild.md`.
+
+Two things deliberately are **not** GitOps-managed, and both have ordering
+reasons rather than stylistic ones. The CNI is applied by Ansible, because Argo
+CD is pods and pods need pod networking. Node packages — `open-iscsi`,
+`nfs-common` — are Ansible's, because a Helm chart cannot install a package on
+its host.
+
 ## Manual steps — nothing enforces these
 
 | Step | When |
 |---|---|
 | `kubectl apply -f kubernetes/gitops/bootstrap/platform-root.yaml` | After any change to the root Application |
 | Vault unseal, 3 of 5 shares | After any restart of `vault-0` |
-| `infrastructure/laptop/set-power-policy.ps1` | On a fresh host install |
+| `infrastructure/laptop/set-power-policy.ps1` | Windows host only; replaced by the `host_no_sleep` Ansible role after the Ubuntu rebuild |
+| `make vault-init` then `make secrets` | After a rebuild. Deliberately not automated — ADR-006 decision 7 |
 
 ## Accepted risks
 
@@ -60,8 +81,13 @@ verification chain: `docs/runbooks/secret-rotation.md`.
   manager, verify a decrypt from that copy, then remove the working file. This
   outranks risk 12 (single control-plane node), because the backups are the
   mitigation for risk 12.
-- **Postmortem item 13** — full rebuild drill. Runbook section 4 has never been
-  executed. Intended to be done for real during the SSD migration.
+- **Postmortem item 13 — the rebuild drill has still never been run.** It is now
+  *executable* rather than theoretical: `make up` plus two manual steps, see
+  `docs/runbooks/rebuild.md`. Every layer passes syntax and lint checks, and none
+  of it has ever been applied to real hardware. Do it on the SSD host, record
+  the timings in the runbook's table, and then measure
+  `etcd_disk_wal_fsync_duration_seconds` before deciding whether the raised
+  leader-election values are still needed.
 - **Monitoring blind spot** — Prometheus stores its TSDB on a Longhorn volume,
   so it cannot observe storage incidents. `EtcdDiskCriticallySlow` did not fire
   on 2026-09-25 because Prometheus was Pending throughout.
