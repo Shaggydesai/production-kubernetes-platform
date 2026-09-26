@@ -22,7 +22,10 @@ spec:
         - name: taskflow-api
           image: ghcr.io/shaggydesai/taskflow-api:77c5acc
           ports:
-            - containerPort: 8080
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
           env:
             - name: DB_HOST
               value: postgresql.taskflow.svc

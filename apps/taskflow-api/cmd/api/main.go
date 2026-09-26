@@ -54,6 +54,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
+	r.Use(middleware.Metrics)
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -61,18 +62,33 @@ func main() {
 	})
 
 	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if err := pool.Ping(pingCtx); err != nil {
+
+		// A ping only proves a connection exists. On 2026-09-25 both replicas
+		// reported Ready for eight hours against a database with no tables,
+		// because Ping succeeds against an empty schema. Checking the migration
+		// state is what distinguishes "connected" from "usable".
+		var version int64
+		var dirty bool
+		err := pool.QueryRow(ctx,
+			"select version, dirty from schema_migrations order by version desc limit 1",
+		).Scan(&version, &dirty)
+
+		switch {
+		case err != nil:
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "not ready", "error": err.Error()})
+			json.NewEncoder(w).Encode(map[string]any{"status": "not ready", "error": err.Error()})
+			return
+		case dirty:
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]any{"status": "not ready", "reason": "schema dirty", "schemaVersion": version})
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
-	})
 
-	r.Handle("/metrics", promhttp.Handler())
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{"status": "ready", "schemaVersion": version})
+	})
 
 	r.Post("/api/register", authHandler.Register)
 	r.Post("/api/login", authHandler.Login)
@@ -95,6 +111,21 @@ func main() {
 		r.Patch("/api/tasks/{id}/status", taskHandler.UpdateStatus)
 		r.Delete("/api/tasks/{id}", taskHandler.Delete)
 	})
+
+	// Metrics listen on a separate port so the gateway cannot reach them. The
+	// HTTPRoute matches PathPrefix / against 8080, which previously exposed
+	// /metrics to anything able to reach the LoadBalancer address. The
+	// NetworkPolicy for the gateway only permits 8080, so this boundary is now
+	// structural rather than a matter of nobody having asked.
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+	go func() {
+		log.Printf("metrics listening on :%s", cfg.MetricsPort)
+		// Not Fatal: losing metrics must not stop serving traffic.
+		if err := http.ListenAndServe(":"+cfg.MetricsPort, metricsMux); err != nil {
+			log.Printf("metrics server stopped: %v", err)
+		}
+	}()
 
 	log.Printf("taskflow-api listening on :%s", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
