@@ -222,6 +222,14 @@ kube-prometheus-stack:
                 severity: warning
               annotations:
                 summary: "No off-cluster copy metric: the mirror job or node-exporter may be broken"
+            - alert: VeleroOffsiteRunFailed
+              expr: velero_offsite_last_run_status == 0
+              for: 30m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Velero off-cluster copy job failed on its last run"
+                description: "Reported by the job itself, not inferred from a stale timestamp. VeleroOffsiteCopyTooOld needs 36h to notice a dead job; this fires within the hour. The unit retries 4 times 5min apart, so a slow control-plane start should clear before this fires. Check: journalctl -u velero-offsite -n 50"
     velero:
       groups:
         - name: velero
