@@ -17,6 +17,7 @@ Design and reasoning: `docs/adr/ADR-006-bootstrap.md`.
 | A GitHub account with a fork of this repo | Argo CD must follow *your* repo, not someone else's |
 | Your Velero backups, if restoring | The guests are replaced, not migrated |
 | A password manager, open | Vault prints its unseal shares exactly once |
+| A GHCR mirror of the MinIO image | Upstream refuses anonymous pulls; `platform-minio` cannot sync without it. See the next section |
 
 ```bash
 git clone https://github.com/<you>/production-kubernetes-platform.git
@@ -39,6 +40,78 @@ make check
 `make check` must pass cleanly. It looks for the tools, both config files and
 the vendored manifest — five minutes of setup mistakes surface here rather than
 twenty minutes into a build.
+
+## Mirror the MinIO image first
+
+`platform-minio` cannot sync on a fresh host until this exists, and Velero has
+no backup target without MinIO — so a restore is blocked behind it. Do this
+before `make up`.
+
+`quay.io/minio/minio` and `quay.io/minio/mc` both return `401 UNAUTHORIZED` to
+anonymous pulls, and `docker.io/minio/*` returns `insufficient_scope`. Verified
+2026-09-28 against a control: `busybox` and `amazon/aws-cli` pull from Docker
+Hub without credentials on the same host, so this is MinIO's distribution
+policy and not a local network problem. It is the third artefact MinIO has
+withdrawn that this project depended on — `dl.min.io` began returning HTTP 410
+earlier.
+
+The source is an OCI archive exported from a node that still had the image:
+
+| | |
+|---|---|
+| File | `minio-RELEASE.2024-12-18T13-15-44Z.tar` |
+| sha256 | `7f36b5a1d135b034736dea1be4968f9a558e7a605905a6b8e67f3b9e5f669726` |
+| Contents | a multi-arch index, but **amd64 blobs only** |
+
+**If that archive is lost, the image cannot be recovered** — neither registry
+will serve it again. Treat it like the `age` key, not like a cache.
+
+```bash
+sudo apt-get install -y skopeo gh
+
+# GHCR needs a CLASSIC PAT or a gh OAuth token. A fine-grained PAT logs in
+# successfully and then fails on the first blob upload with
+# "The token provided does not match expected scopes", because fine-grained
+# permissions are granted per EXISTING package and the package does not exist
+# yet. That failure mode cost half an hour on 2026-09-28.
+gh auth login --scopes write:packages --web
+gh auth token | skopeo login ghcr.io -u <you> --password-stdin
+
+# NOT --all. The index advertises 6 platforms and the archive contains one, so
+# --all dies on the first platform whose blobs are absent.
+skopeo copy --override-os linux --override-arch amd64 \
+  oci-archive:minio-RELEASE.2024-12-18T13-15-44Z.tar \
+  docker://ghcr.io/<you>/minio:RELEASE.2024-12-18T13-15-44Z
+
+skopeo inspect docker://ghcr.io/<you>/minio:RELEASE.2024-12-18T13-15-44Z \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["Digest"])'
+
+skopeo logout ghcr.io
+```
+
+That digest must read
+`sha256:34c8e2f52a5984492555427fee07254c80036bdb7079bb91679232abd7a4fa20`,
+the amd64 entry from quay's original index. If it matches, the mirror is
+bit-identical to what upstream served. Then point
+`kubernetes/platform/minio/values.yaml` at your own namespace:
+
+```yaml
+minio:
+  image:
+    repository: ghcr.io/<you>/minio
+```
+
+The pull side needs no new credential: `secret/ghcr` already holds a
+`read:packages` token and `templates/externalsecret-ghcr.yaml` renders it into
+the `minio` namespace. Delete the push token afterwards — it is a bootstrap
+credential like the Vault unseal shares, and it does not belong in Vault.
+
+**`mc` cannot be mirrored at all.** No copy of it exists on our side, so bucket
+creation moved to `templates/job-create-bucket.yaml`, a PostSync Job running
+`aws-cli` pinned by manifest digest. The chart's own Job is suppressed by
+pinning all five of its gate keys — `buckets`, `users`, `policies`, `svcaccts`,
+`customCommands` — to empty. Emptying `buckets` alone does **not** work; the
+Job still renders.
 
 ## Build
 
@@ -73,6 +146,28 @@ make secrets
 
 Unseals Vault, enables Kubernetes auth for External Secrets, and writes the
 secrets the platform needs. Argo CD converges everything else unattended.
+
+### Two secrets nobody writes for you
+
+The `vault-config` PreSync Job seeds `secret/grafana`, `secret/postgresql`,
+`secret/taskflow-api`, `secret/minio`, `secret/velero` and `secret/demo-app`
+with random values, idempotently. Two more are neither in Git nor generated,
+and nothing tells you they are missing:
+
+```bash
+# GHCR pull credentials. taskflow-api, its migration Job, AND platform-minio
+# all need these - so forgetting it looks like three unrelated faults.
+vault kv put secret/ghcr username=<github-user> token=<ghcr-read-token>
+
+# Discord. The path is secret/alertmanager, NOT secret/discord.
+vault kv patch secret/alertmanager discord-webhook-url=<url>
+```
+
+`kv patch`, not `kv put`, on `secret/alertmanager` — `put` replaces the whole
+document and silently discards the other keys. Writing to `secret/discord`
+instead produces an ExternalSecret that reports `SecretSynced` while serving
+nothing; that mistake cost an afternoon on 2026-09-27. See
+`docs/runbooks/secret-rotation.md`.
 
 **Recovery order is not optional:** Vault → External Secrets Operator →
 Postgres. Proven on 2026-09-26: Postgres reads its password from a Secret that
@@ -170,3 +265,15 @@ vendored manifest by hand, that is where to look.
 `GITHUB_TOKEN`, which GitHub suppresses workflow runs for. Since 2026-09-26 CI
 uses a GitHub App token; if you forked this repo, create your own App and set
 `CI_APP_ID` and `CI_APP_PRIVATE_KEY`.
+
+**`platform-minio` in `ImagePullBackOff` on a fresh build.** You skipped the
+mirror — see "Mirror the MinIO image first". If the mirror exists and the pull
+still fails with `unauthorized`, check that `secret/ghcr` was written and that
+the ExternalSecret in the `minio` namespace actually produced a
+`ghcr-pull-secret`.
+
+**The bucket Job fails on a read-only filesystem.** `aws-cli` writes under
+`$HOME`; the Job sets `HOME=/tmp` with an `emptyDir` there and
+`readOnlyRootFilesystem: true`. If a newer `aws-cli` digest needs to write
+elsewhere, that is the flag to relax — and pin the new digest, do not switch to
+a tag.
