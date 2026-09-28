@@ -203,6 +203,14 @@ kube-prometheus-stack:
                 severity: warning
               annotations:
                 summary: "etcd defrag job has not succeeded in 14 days"
+            - alert: EtcdDefragRunFailed
+              expr: etcd_defrag_last_run_status == 0
+              for: 1h
+              labels:
+                severity: warning
+              annotations:
+                summary: "etcd defrag job failed on its last run"
+                description: "Reported by the job itself. The 14-day staleness alert could not catch this: before 2026-09-28, a run that could not reach etcd read empty db sizes, took the skip branch because empty strings evaluate to 0, and wrote a FRESH success timestamp. Check: journalctl -u etcd-defrag -n 50"
     velero-offsite:
       groups:
         - name: velero-offsite
