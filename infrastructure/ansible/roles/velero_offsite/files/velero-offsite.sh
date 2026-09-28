@@ -13,6 +13,53 @@ NAME=velero-minio-$(hostname -s)-$TS
 
 mkdir -p "$WORK" "$OUT" "$PROM_DIR"
 
+# Every run reports its outcome, in a file of its own.
+#
+# velero_offsite.prom holds the last SUCCESS and is what the staleness alert
+# reads, so a failure must never touch it. This second file says whether the
+# most recent run worked, which makes a failure visible in minutes instead of
+# being inferred from a timestamp that quietly stops moving. On 2026-09-27 and
+# 2026-09-28 this job failed into a dead apiserver and the only signal was
+# VeleroOffsiteCopyTooOld, which needs 36 hours to fire.
+RUN_PROM="$PROM_DIR/velero_offsite_run.prom"
+write_run_status() {
+  tmp="$RUN_PROM.tmp"
+  {
+    echo '# HELP velero_offsite_last_run_status 1 if the last run succeeded, 0 if it failed.'
+    echo '# TYPE velero_offsite_last_run_status gauge'
+    echo "velero_offsite_last_run_status $1"
+    echo '# HELP velero_offsite_last_run_timestamp_seconds Unix time the last run ended, success or failure.'
+    echo '# TYPE velero_offsite_last_run_timestamp_seconds gauge'
+    echo "velero_offsite_last_run_timestamp_seconds $(date +%s)"
+  } > "$tmp"
+  chmod 644 "$tmp"
+  mv "$tmp" "$RUN_PROM"
+}
+trap 'write_run_status 0' EXIT
+
+# Wait for the control plane before doing anything.
+#
+# The timer has Persistent=true and OnCalendar=03:15, so on a host that boots at
+# that minute systemd runs the missed job immediately - before kube-apiserver is
+# serving. Without this the run fails and the next attempt is a day away, which
+# is how the offsite copy ended up two days stale.
+echo "0/3 wait for apiserver"
+for i in $(seq 1 60); do
+  if kubectl --request-timeout=10s get --raw=/readyz >/dev/null 2>&1; then break; fi
+  if [ "$i" -eq 60 ]; then echo "apiserver not ready after 10 minutes" >&2; exit 1; fi
+  sleep 10
+done
+
+# And for MinIO to be serving. rclone talks to the Service ClusterIP, so a MinIO
+# that exists but is not Ready gives a confusing rclone timeout instead of a
+# clear message about what is actually wrong.
+for i in $(seq 1 30); do
+  avail=$(kubectl -n minio get deploy minio -o jsonpath='{.status.availableReplicas}' 2>/dev/null || true)
+  if [ "${avail:-0}" -ge 1 ]; then break; fi
+  if [ "$i" -eq 30 ]; then echo "minio has no available replica after 5 minutes" >&2; exit 1; fi
+  sleep 10
+done
+
 export RCLONE_CONFIG_LAB_TYPE=s3
 export RCLONE_CONFIG_LAB_PROVIDER=Minio
 export RCLONE_CONFIG_LAB_ENDPOINT="http://$(kubectl -n minio get svc minio -o jsonpath='{.spec.clusterIP}'):9000"
@@ -36,4 +83,7 @@ printf 'velero_offsite_last_success_timestamp_seconds %s\nvelero_offsite_last_si
   "$(date +%s)" "$(stat -c %s "$OUT/$NAME.tar.gz.age")" > "$PROM_DIR/velero_offsite.prom.tmp"
 chmod 644 "$PROM_DIR/velero_offsite.prom.tmp"
 mv "$PROM_DIR/velero_offsite.prom.tmp" "$PROM_DIR/velero_offsite.prom"
+
+trap - EXIT
+write_run_status 1
 echo "OK: $OUT/$NAME.tar.gz.age ($(du -h "$OUT/$NAME.tar.gz.age" | cut -f1))"

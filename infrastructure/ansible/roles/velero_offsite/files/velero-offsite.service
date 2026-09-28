@@ -1,9 +1,28 @@
 [Unit]
 Description=Mirror the Velero MinIO bucket off-cluster (encrypted)
+
+# After= alone does not pull a target into the transaction - it only orders
+# against it IF something else activates it. Wants= makes the ordering real.
+# Even then, "network online" is not "kube-apiserver is serving", which is what
+# this job actually needs, so the script waits for /readyz as well.
+Wants=network-online.target
 After=network-online.target
+
+# A failed run used to cost a full day. The timer fires once at 03:15 and
+# Persistent=true means a host booting at that minute fires the missed run
+# immediately - into an apiserver that is not up yet. That is precisely what
+# happened on 2026-09-27 (connection refused) and 2026-09-28 (network
+# unreachable), and the offsite copy was then two days stale.
+#
+# Four attempts, five minutes apart: enough to ride out a slow control-plane
+# start, bounded so a genuinely broken cluster does not retry forever.
+StartLimitIntervalSec=30min
+StartLimitBurst=4
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/velero-offsite.sh
+Restart=on-failure
+RestartSec=5min
 Nice=10
 IOSchedulingClass=idle
