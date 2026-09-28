@@ -19,6 +19,13 @@ nodeRegistration:
   kubeletExtraArgs:
     - name: node-ip
       value: {{ hostvars[inventory_hostname]['ansible_host'] }}
+# Patches applied to objects kubeadm generates. Currently CoreDNS
+# anti-affinity; see files/patches/. kubeadm re-applies these on init AND
+# on `kubeadm upgrade apply --patches {{ control_plane_patches_dir }}`,
+# which is the only reason this is a patch and not a kubectl command.
+patches:
+  directory: {{ control_plane_patches_dir }}
+
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration

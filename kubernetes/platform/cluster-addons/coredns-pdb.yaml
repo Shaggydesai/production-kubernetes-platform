@@ -1,0 +1,22 @@
+# Cluster-level objects that belong to no other component.
+#
+# CoreDNS runs two replicas with REQUIRED anti-affinity, applied by the kubeadm
+# patch in infrastructure/ansible/roles/control_plane/files/patches/. That
+# guarantees the replicas are on different nodes; it does not guarantee they
+# stay up. Without a budget, draining a node can evict both at once.
+#
+# The Deployment itself is deliberately NOT managed here: kubeadm regenerates
+# it on `kubeadm upgrade apply`, so Argo CD would either fight it or sit
+# permanently OutOfSync. Same reasoning as ADR-006 decision 6.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: coredns
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/part-of: cluster-addons
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      k8s-app: kube-dns
