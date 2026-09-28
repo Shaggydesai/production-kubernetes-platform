@@ -1,6 +1,29 @@
 minio:
   mode: standalone
 
+  # Recreate, not RollingUpdate. Note the lowercase `deploymentUpdate` - the
+  # chart reads .Values.deploymentUpdate, and `DeploymentUpdate` is ignored.
+  #
+  # The chart defaults to RollingUpdate with maxUnavailable: 0 and
+  # maxSurge: 100%, which requires the NEW pod to be Ready before the old one
+  # is removed. With a single ReadWriteOnce Longhorn volume that can never
+  # happen: the replacement is scheduled to another node and blocks on
+  # "Multi-Attach error for volume ... is already used by pod(s) ..." forever,
+  # while the pod holding the volume waits for a rollout that cannot proceed.
+  #
+  # Observed 2026-09-28, the first time this image had ever changed: the new
+  # pod sat ContainerCreating on worker01 for 24 minutes while the old one held
+  # the volume on worker02, and platform-minio went Degraded. Latent from the
+  # day MinIO was installed - a deadlock on every image change, invisible
+  # until the first one.
+  #
+  # This block MUST stay inside the `minio:` mapping. Appended at the end of
+  # the file it becomes a child of `bucketProvisioning:` and does nothing,
+  # which is how it was first written and why the render still said
+  # RollingUpdate.
+  deploymentUpdate:
+    type: Recreate
+
   # Mirrored image, not upstream. quay.io/minio/minio began returning 401 to
   # anonymous pulls in September 2026 and docker.io/minio/minio refuses them
   # too - both verified 2026-09-28 with crictl against a working control
@@ -72,3 +95,4 @@ bucketProvisioning:
   # the image ID, which is NOT valid in an image reference. Resolved from
   # repoDigests on 2026-09-28. Nothing updates this automatically; it will age.
   awsCliImage: docker.io/amazon/aws-cli@sha256:fdd8d1fcbea9c371678dee5a40df8b178c7a781b4586605756ee28114c97ead6
+
