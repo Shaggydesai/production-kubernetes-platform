@@ -1,0 +1,99 @@
+# Creates the buckets Velero needs.
+#
+# Replaces the chart's post-install Job, which used quay.io/minio/mc - an image
+# that now returns 401 to anonymous pulls and of which no local copy exists
+# anywhere, so unlike the server image it can never be mirrored. The chart Job
+# is suppressed by pinning all five of its gate keys empty in values.yaml.
+#
+# It ran successfully on 2026-09-11 when quay still served it, then deleted
+# itself per its hook policy - so the breakage was invisible until someone
+# attempted a rebuild. See docs/runbooks/rebuild.md.
+#
+# PostSync, not a plain Job: Argo CD would refuse to update an immutable Job on
+# every resync. HookSucceeded deletes it on success and leaves it for
+# inspection on failure.
+#
+# Idempotent by construction. `s3 mb` on an existing bucket exits non-zero, and
+# a PostSync hook that fails on every sync after the first would leave
+# platform-minio permanently Degraded - so head-bucket first, create only if
+# absent.
+{{- if .Values.bucketProvisioning.buckets }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-buckets
+  namespace: minio
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: bucket-provisioning
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio
+        app.kubernetes.io/component: bucket-provisioning
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: aws-cli
+          image: {{ .Values.bucketProvisioning.awsCliImage | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HOME
+              value: /tmp
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            # aws-cli otherwise spends its timeout probing EC2 instance
+            # metadata, which does not exist here.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: rootUser
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: rootPassword
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              EP="{{ .Values.bucketProvisioning.endpoint }}"
+              n=0
+              until aws --endpoint-url "$EP" s3api list-buckets >/dev/null 2>&1; do
+                n=$((n+1))
+                if [ "$n" -ge 60 ]; then
+                  echo "minio did not answer at $EP after 5 minutes" >&2
+                  exit 1
+                fi
+                echo "waiting for minio at $EP ($n/60)"
+                sleep 5
+              done
+              {{- range .Values.bucketProvisioning.buckets }}
+              B="{{ . }}"
+              if aws --endpoint-url "$EP" s3api head-bucket --bucket "$B" >/dev/null 2>&1; then
+                echo "bucket $B already exists"
+              else
+                echo "creating bucket $B"
+                aws --endpoint-url "$EP" s3 mb "s3://$B"
+              fi
+              {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

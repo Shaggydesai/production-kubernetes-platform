@@ -1,14 +1,74 @@
 minio:
   mode: standalone
+
+  # Mirrored image, not upstream. quay.io/minio/minio began returning 401 to
+  # anonymous pulls in September 2026 and docker.io/minio/minio refuses them
+  # too - both verified 2026-09-28 with crictl against a working control
+  # (busybox and amazon/aws-cli pull fine from Docker Hub, so this is MinIO's
+  # policy, not our network).
+  #
+  # This tag is a bit-identical copy of the amd64 manifest quay served:
+  # digest sha256:34c8e2f52a5984492555427fee07254c80036bdb7079bb91679232abd7a4fa20
+  # pushed from a local OCI export. amd64 ONLY - a rebuild on arm64 cannot
+  # pull it. See docs/runbooks/rebuild.md for how to recreate the mirror.
+  image:
+    repository: ghcr.io/shaggydesai/minio
+    tag: RELEASE.2024-12-18T13-15-44Z
+  imagePullSecrets:
+    - name: ghcr-pull-secret
+
   persistence:
     enabled: true
     storageClass: longhorn-single-replica
     size: 5Gi
   existingSecret: minio-credentials
-  buckets:
-    - name: velero-backups
-      policy: none
-      purge: false
+
+  # Deliberately empty. The chart creates buckets with a Job running
+  # quay.io/minio/mc, which is also 401 - and unlike the server image we have
+  # NO local copy of mc anywhere, so it can never be mirrored. Bucket creation
+  # therefore moved to templates/job-create-bucket.yaml, which uses aws-cli.
+  #
+  # This is the half that fixes a REBUILD. The ImagePullBackOff is the loud
+  # half; this is the one that would have stalled a restore.
+  buckets: []
+
   resources:
     requests:
       memory: 256Mi
+
+  # All five keys that gate the chart's post-install `mc` Job, pinned empty.
+  #
+  # The guard in charts/minio/templates/post-job.yaml is:
+  #   if or .Values.buckets .Values.users .Values.policies
+  #         .Values.customCommands .Values.svcaccts
+  # so a chart bump that adds a default to ANY of them resurrects a Job whose
+  # image (quay.io/minio/mc) returns 401 and which we have no copy of. Pinning
+  # all five makes that impossible instead of unlikely. Emptying `buckets`
+  # alone was NOT enough - verified 2026-09-28, the Job still rendered.
+  #
+  # `users: []` also removes a chart DEFAULT of
+  #   accessKey: console / secretKey: console123 / policy: consoleAdmin
+  # - a published-password administrator on the store that holds every Velero
+  # backup. Nobody chose it; it shipped, and it is recreated on every rebuild.
+  # Safe to remove: verified 2026-09-28 that Velero authenticates as rootUser,
+  # by comparing sha256 of its aws_access_key_id against minio rootUser.
+  users: []
+  policies: []
+  svcaccts: []
+  customCommands: []
+
+# --- wrapper-chart values, NOT passed to the minio subchart ---
+
+# Bucket provisioning, replacing the chart's post-install `mc` Job which cannot
+# pull its image. See templates/job-create-bucket.yaml.
+bucketProvisioning:
+  endpoint: http://minio:9000
+  buckets:
+    - velero-backups
+  # Pinned by MANIFEST digest - not by tag, and not by image ID.
+  # `:latest` on this repository moves, and an unpinned replacement for an
+  # image that vanished would be a strange lesson to draw. The value crictl
+  # prints on pull (sha256:035677251c...) is the config blob's digest, i.e.
+  # the image ID, which is NOT valid in an image reference. Resolved from
+  # repoDigests on 2026-09-28. Nothing updates this automatically; it will age.
+  awsCliImage: docker.io/amazon/aws-cli@sha256:fdd8d1fcbea9c371678dee5a40df8b178c7a781b4586605756ee28114c97ead6
