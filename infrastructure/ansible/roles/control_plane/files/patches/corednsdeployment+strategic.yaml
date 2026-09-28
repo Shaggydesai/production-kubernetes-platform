@@ -1,0 +1,32 @@
+# kubeadm patch: CoreDNS replicas must not share a node.
+#
+# kubeadm ships CoreDNS with PREFERRED anti-affinity, which the scheduler is
+# free to ignore - and does, when both replicas are created during a window in
+# which only one node is accepting pods. That is every cluster restart.
+#
+# On 2026-09-28 both replicas were on cp01. When that node's containerd cache
+# was discarded and it spent ~30 minutes re-pulling images, cluster DNS went
+# with it; longhorn-manager on BOTH workers then could not resolve its own
+# conversion webhook Service, exited after its 60s check, and no volume could
+# attach anywhere. One slow image pull on one node removed storage from the
+# other two.
+#
+# See docs/incidents/2026-09-27-unclean-shutdown-corruption.md
+#
+# This is a kubeadm patch and not a kubectl patch because `kubeadm upgrade
+# apply` regenerates the CoreDNS Deployment. A hand-applied patch survives
+# until the next upgrade and then silently reverts, and a silently reverted
+# availability guarantee is worse than none - you go on believing you have it.
+# Same defect as ADR-006 decision 4.
+spec:
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: k8s-app
+                    operator: In
+                    values: ["kube-dns"]
+              topologyKey: kubernetes.io/hostname

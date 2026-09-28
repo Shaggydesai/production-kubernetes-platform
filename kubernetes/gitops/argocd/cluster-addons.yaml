@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-cluster-addons
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/Shaggydesai/production-kubernetes-platform.git
+    targetRevision: main
+    path: kubernetes/platform/cluster-addons
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  # No CreateNamespace: kube-system exists long before Argo CD does.
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

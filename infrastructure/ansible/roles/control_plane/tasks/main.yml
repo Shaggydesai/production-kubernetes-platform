@@ -16,6 +16,22 @@
 # the file on disk in step with Git, so `kubeadm upgrade apply --config` and any
 # future diff have something truthful to read.
 
+- name: Create the kubeadm patch directory
+  ansible.builtin.file:
+    path: "{{ control_plane_patches_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install the kubeadm patches
+  ansible.builtin.copy:
+    src: patches/
+    dest: "{{ control_plane_patches_dir }}/"
+    owner: root
+    group: root
+    mode: "0600"
+
 - name: Initialise the control plane
   ansible.builtin.command: >-
     kubeadm init --config {{ control_plane_kubeadm_config }}
@@ -76,3 +92,31 @@
       exact defect this role exists to prevent: settings present only in
       /etc/kubernetes/manifests are discarded by `kubeadm upgrade apply`,
       which then reports success.
+
+# kubeadm silently ignores a patch file whose target name it does not
+# recognise, so the only way to know the patch took effect is to read the
+# object back. Without this the role fails open: a cluster that looks correct
+# and has the old behaviour.
+- name: Read back the CoreDNS affinity kubeadm actually applied
+  ansible.builtin.command: >-
+    kubectl --kubeconfig {{ control_plane_admin_conf }}
+    -n kube-system get deploy coredns
+    -o jsonpath={.spec.template.spec.affinity.podAntiAffinity}
+  register: control_plane_coredns_affinity
+  changed_when: false
+  retries: 12
+  delay: 10
+  until: control_plane_coredns_affinity.rc == 0
+
+- name: CoreDNS anti-affinity must be required, not preferred
+  ansible.builtin.assert:
+    that:
+      - "'requiredDuringSchedulingIgnoredDuringExecution' in control_plane_coredns_affinity.stdout"
+    fail_msg: >-
+      The corednsdeployment patch was not applied. Two likely causes: kubeadm
+      does not recognise that patch target name in {{ kubernetes_version }} and
+      ignored the file without warning, or this cluster was already initialised
+      so `kubeadm init` did not run - in which case apply it with
+      `kubeadm upgrade apply --patches {{ control_plane_patches_dir }}`.
+      Leaving this unfixed means both CoreDNS replicas may share a node; see
+      docs/incidents/2026-09-27-unclean-shutdown-corruption.md
