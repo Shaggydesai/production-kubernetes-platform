@@ -52,6 +52,76 @@ started this way.
    (typically `taskflow-api` waiting on Postgres).
 7. **Take a backup** once healthy: `velero backup create --from-schedule velero-daily-data --wait`
 
+## After an unclean shutdown or a control-plane outage
+
+Do this in addition to the staged startup above, not instead of it. Three
+separate components have come back from an outage `Ready` and not working, and
+each stayed broken until someone looked for it by hand — once for three days.
+`Ready` is a liveness claim, not a correctness one.
+
+**1. Read what is firing, before anything else.**
+
+```bash
+kubectl -n monitoring exec sts/prometheus-kube-prometheus-stack-prometheus -c prometheus -- \
+  sh -c 'wget -qO- "http://localhost:9090/api/v1/query?query=ALERTS{alertstate=\"firing\"}"' | head -c 800
+```
+
+`Watchdog` is expected. Anything else is a real answer to "what did the outage
+break", and it is cheaper to read than to rediscover. On 2026-09-29 a critical
+alert had been firing for 23 hours and was found by accident.
+
+**2. Restart the components that hold caches.**
+
+```bash
+kubectl -n velero rollout restart daemonset/node-agent
+```
+
+Velero's node agent caches pods per node. If that cache is broken it still
+reports `1/1 Running` and fails every volume backup instantly with
+`Pod "<name>" not found`. It cost three days of application-data backups on
+2026-09-27 to 29. Restarting the Velero *server* does not fix it; the agent does.
+
+**3. Check for containers that outlived containerd's records.**
+
+```bash
+sudo crictl pods -q | sort > /tmp/sandboxes.txt
+ps -C containerd-shim-runc-v2 -o args= \
+  | sed -n 's/.*-id \([0-9a-f]\{64\}\).*/\1/p' | sort > /tmp/shims.txt
+wc -l /tmp/sandboxes.txt /tmp/shims.txt
+comm -13 /tmp/sandboxes.txt /tmp/shims.txt | wc -l
+```
+
+Must be 0. Discarding `/var/lib/containerd` does **not** stop the containers it
+was running, and the survivors are invisible to `crictl`, `kubectl` and the
+kubelet. On 2026-09-28 ten survived, one of them a second `kube-proxy`
+programming iptables. Kill the shim, not the container — the shim owns the
+lifecycle.
+
+**4. Run the metric-writing timers once, so their files are known-good.**
+
+```bash
+sudo systemctl start etcd-defrag.service etcd-pull-observe.service
+cat /var/lib/node_exporter/textfile_collector/*.prom | grep -vE '^#' | grep -E '[a-z_]+ *$' \
+  && echo "!! a metric above has no value - node-exporter will refuse the whole file" \
+  || echo "all textfile metrics have values"
+```
+
+A metric line with a name and no value is invalid and breaks the collector. It
+happened when the defrag script queried a dead etcd and wrote the empty result
+out anyway.
+
+**5. Confirm the last volume backup actually moved bytes.**
+
+```bash
+kubectl -n velero get podvolumebackups \
+  -o custom-columns=POD:.spec.pod.name,VOL:.spec.volume,PHASE:.status.phase,BYTES:.status.progress.bytesDone \
+  --sort-by=.metadata.creationTimestamp | tail -8
+```
+
+A `Completed` Backup object is not evidence that volume data was captured — a
+backup whose every PodVolumeBackup failed reports `PartiallyFailed`, which reads
+like a minor problem and is not.
+
 ## When the host is short on memory
 
 Pause the monitoring stack; it's the heaviest part and the least critical:
