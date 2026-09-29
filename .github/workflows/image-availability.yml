@@ -38,11 +38,14 @@ jobs:
       - name: Install skopeo
         run: sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
 
-      # Our own GHCR packages are private. This may fail if the package is not
-      # linked to this repository, which is why a ghcr.io/shaggydesai failure
-      # below is a warning rather than an error - we control those images.
+      # Our own GHCR packages are private, so this is required to check them.
+      # The minio mirror was pushed with a PAT, which does not link a package to
+      # a repository, so GITHUB_TOKEN was "denied" on it until the package was
+      # granted Actions read access to this repo in its own settings. A failure
+      # on one of our images is now a real failure, not a standing exemption -
+      # and no continue-on-error here, because a login that fails silently would
+      # turn every one of our images into a false alarm.
       - name: Log in to GHCR
-        continue-on-error: true
         run: echo '${{ secrets.GITHUB_TOKEN }}' | skopeo login ghcr.io -u '${{ github.actor }}' --password-stdin
 
       - name: Collect every image the charts render
@@ -63,41 +66,50 @@ jobs:
       - name: Resolve each manifest
         run: |
           set -uo pipefail
-          hard=0
+          hard=0; throttled_count=0; total=0
           while read -r img; do
             [ -n "$img" ] || continue
-            ok=0
+            total=$((total + 1))
+            ok=0; throttled=0
             for attempt in 1 2 3; do
               if err=$(skopeo inspect --raw --override-os linux --override-arch amd64 \
                          "docker://$img" 2>&1 >/dev/null); then
                 ok=1; break
               fi
-              sleep $((attempt * 5))
+              case "$err" in
+                *toomanyrequests*|*"Data limit exceeded"*|*"rate limit"*|*" 429 "*)
+                  throttled=1 ;;
+                *) throttled=0 ;;
+              esac
+              [ "$attempt" = 3 ] && break
+              sleep $((attempt * 15))
             done
             if [ "$ok" = 1 ]; then
-              printf 'OK    %s\n' "$img"
+              printf 'OK           %s\n' "$img"
+            elif [ "$throttled" = 1 ]; then
+              # A rate limit is not evidence the image is gone. AWS public ECR
+              # and Docker Hub both throttle anonymous requests from GitHub's
+              # shared runner IPs - ecr-public hit "Data limit exceeded" on
+              # 2026-09-29 for an image that resolved fine from a laptop
+              # moments later. Failing on this would make a daily check cry
+              # wolf, and today established that notification volume is what
+              # buried a real critical alert for 23 hours.
+              printf 'INCONCLUSIVE %s (rate limited)\n' "$img"
+              throttled_count=$((throttled_count + 1))
             else
-              # Print the error UNTRUNCATED, then annotate briefly and point at
-              # it. The first version cut the message to 120 characters, which
-              # is exactly the length of skopeo's "Error parsing image name
-              # docker://..." prefix - so the cause, the entire reason for
-              # capturing stderr, never reached the log. A 401, a 404 and a DNS
-              # failure were indistinguishable again.
               printf -- '---- FULL ERROR for %s ----\n%s\n---- end ----\n' "$img" "$err"
-              case "$img" in
-                ghcr.io/shaggydesai/*)
-                  # Ours, and private. GHCR accepts GITHUB_TOKEN for login
-                  # regardless but authorises reads per package, so this warns
-                  # rather than fails. This check exists to catch UPSTREAM
-                  # withdrawal; our own mirror is not upstream.
-                  printf '::warning::our own private image did not resolve: %s - see FULL ERROR in the log\n' "$img"
-                  ;;
-                *)
-                  printf '::error::%s cannot be pulled - see FULL ERROR in the log\n' "$img"
-                  hard=$((hard + 1))
-                  ;;
-              esac
+              printf '::error::%s cannot be pulled - see FULL ERROR in the log\n' "$img"
+              hard=$((hard + 1))
             fi
           done < /tmp/images.txt
-          echo "---- $hard image(s) unresolvable"
+
+          echo "---- $total checked, $hard unresolvable, $throttled_count inconclusive"
+
+          # If much of the run was throttled it proved nothing, and silence
+          # would read as a clean bill of health.
+          if [ "$throttled_count" -gt 5 ]; then
+            printf '::error::%s of %s images were rate limited - this run proved nothing\n' \
+              "$throttled_count" "$total"
+            exit 1
+          fi
           exit $hard
