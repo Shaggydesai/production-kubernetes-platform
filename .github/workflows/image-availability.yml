@@ -76,13 +76,27 @@ jobs:
             done
             if [ "$ok" = 1 ]; then
               printf 'OK    %s\n' "$img"
-            elif case "$img" in ghcr.io/shaggydesai/*) true;; *) false;; esac; then
-              printf '::warning::our own private image did not resolve: %s (%s)\n' \
-                "$img" "$(echo "$err" | tail -1 | cut -c1-120)"
             else
-              printf '::error::%s cannot be pulled: %s\n' \
-                "$img" "$(echo "$err" | tail -1 | cut -c1-120)"
-              hard=$((hard + 1))
+              # Print the error UNTRUNCATED, then annotate briefly and point at
+              # it. The first version cut the message to 120 characters, which
+              # is exactly the length of skopeo's "Error parsing image name
+              # docker://..." prefix - so the cause, the entire reason for
+              # capturing stderr, never reached the log. A 401, a 404 and a DNS
+              # failure were indistinguishable again.
+              printf -- '---- FULL ERROR for %s ----\n%s\n---- end ----\n' "$img" "$err"
+              case "$img" in
+                ghcr.io/shaggydesai/*)
+                  # Ours, and private. GHCR accepts GITHUB_TOKEN for login
+                  # regardless but authorises reads per package, so this warns
+                  # rather than fails. This check exists to catch UPSTREAM
+                  # withdrawal; our own mirror is not upstream.
+                  printf '::warning::our own private image did not resolve: %s - see FULL ERROR in the log\n' "$img"
+                  ;;
+                *)
+                  printf '::error::%s cannot be pulled - see FULL ERROR in the log\n' "$img"
+                  hard=$((hard + 1))
+                  ;;
+              esac
             fi
           done < /tmp/images.txt
           echo "---- $hard image(s) unresolvable"
