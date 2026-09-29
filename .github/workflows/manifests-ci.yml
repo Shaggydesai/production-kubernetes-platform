@@ -53,8 +53,12 @@ jobs:
             exit 1
           }
 
-      # quay.io/minio has returned 401 to anonymous pulls since Sept 2026 and
-      # `mc` cannot be mirrored because no copy of it exists. Setting
+      # quay.io/minio has returned 401 to anonymous pulls since Sept 2026, so
+      # neither the server image nor quay.io/minio/mc can be pulled. The mc
+      # *binary* does exist - it ships inside the MinIO server image mirrored to
+      # GHCR - it is the mc *image* that is unobtainable. An earlier version of
+      # this comment said no copy of mc existed anywhere, which was wrong.
+      # Setting
       # `buckets: []` did NOT suppress the chart's mc Job - four other values
       # also gate it. If it ever comes back, break the build, not the cluster.
       - name: No manifest may PULL from quay.io/minio
@@ -70,6 +74,51 @@ jobs:
             echo "quay.io/minio is unreachable (401 since Sept 2026) and mc cannot be mirrored"
             exit 1
           fi
+
+      # 2026-09-29: chart 5.4.0's post-install Job creates a consoleAdmin
+      # account - console/console123 - by invoking createUser in a mounted
+      # ConfigMap script. Rendering the chart as it stood at install (79d7a44)
+      # proved the account was declared in plaintext by a manifest we applied.
+      # It was nonetheless absent from the running server, and what created the
+      # velero-backups bucket on 2026-09-20 remains unknown - no commit touches
+      # MinIO between 09-10 and 09-28.
+      #
+      # Asserted structurally rather than by credential string: a later chart
+      # may name the account something other than console, but it would still
+      # invoke createUser in the same script. Both patterns were checked against
+      # the at-install render (1 each) and the current one (0 each) before being
+      # written here - a check never run against known-bad input is not a check.
+      - name: No manifest may declare a MinIO user
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import os, pathlib, re, sys, yaml
+          d = pathlib.Path(os.environ.get("RENDER_DIR", "/tmp/rendered"))
+          invoke = re.compile(r"^\s*createUser\s+[A-Za-z]")
+          bad, configmaps = [], 0
+          for f in sorted(d.glob("*.yaml")):
+              for doc in yaml.safe_load_all(f.read_text()):
+                  if not isinstance(doc, dict):
+                      continue
+                  name = (doc.get("metadata") or {}).get("name", "?")
+                  if doc.get("kind") == "Job" and name == "minio-post-job":
+                      bad.append(f"{f.name}: Job/{name} is back - not all five gate values in minio/values.yaml are pinned")
+                  if doc.get("kind") == "ConfigMap":
+                      configmaps += 1
+                      for key, val in (doc.get("data") or {}).items():
+                          if not isinstance(val, str):
+                              continue
+                          for i, line in enumerate(val.splitlines(), 1):
+                              if invoke.match(line):
+                                  bad.append(f"{f.name}: ConfigMap/{name} key {key!r} line {i}: {line.strip()!r}")
+          # Never pass vacuously: the minio chart always renders a ConfigMap, so
+          # zero means the render or this glob is broken, not that we are clean.
+          assert configmaps > 0, f"no ConfigMap found under {d} - this check is looking at nothing"
+          for b in bad:
+              print("FAIL:", b)
+          print(f"checked {configmaps} ConfigMaps under {d}: {len(bad)} violation(s)")
+          sys.exit(1 if bad else 0)
+          PY
 
   rules:
     name: promtool check rules
