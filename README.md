@@ -5,21 +5,36 @@ platform: GitOps delivery, secrets from Vault, replicated storage, backups that
 have actually been restored, and monitoring that has caught real failures.
 
 It runs on a laptop. What makes it worth reading is not the component list — it
-is the two incidents it survived, the measurements taken during them, and the
+is the three incidents it survived, the measurements taken during them, and the
 risks accepted on purpose rather than by accident.
 
 ## Incidents
 
-Both are blameless write-ups with timelines, evidence and action items.
+All three are blameless write-ups with timelines, evidence and action items.
 
 | Date | What happened | Root cause |
 |---|---|---|
 | [2026-09-18](docs/incidents/2026-09-18-etcd-corruption.md) | etcd would not start; `etcdutl snapshot status` failed with `nil bucket` | Structural damage from a hand-rebuilt bbolt database. Recovered with a staged live swap, 47s of downtime |
 | [2026-09-25](docs/incidents/2026-09-25-host-sleep.md) | Longhorn volumes remounted read-only, control plane flapped | Host entered S3 sleep with VMs running. VMware could not complete guest I/O across the suspend. No data lost |
+| [2026-09-27](docs/incidents/2026-09-27-unclean-shutdown-corruption.md) | etcd **and** containerd both corrupted their bbolt stores; two restores in 24 hours | Unclean host resets. Guest fsync not honoured across an abrupt reset, on drives reporting perfect SMART health. No data lost — but three components came back Ready and silently broken, one of them for three days |
 
-The second produced numbers worth keeping: etcd WAL fsync p99 of **1,341 ms**
+The 25-09 incident produced numbers worth keeping: etcd WAL fsync p99 of **1,341 ms**
 under rebuild load against **15 ms** at idle, and 47 `kube-controller-manager`
 restarts caused entirely by missed leader-election leases.
+
+The 27-09 incident produced the argument that ends the hardware debate: bbolt is
+engineered to survive power loss, and **two independent programs using it were
+damaged by the same event**. One corrupt database is an application bug; two is a
+storage stack that lies about durability.
+
+It also produced the finding that matters most. Alerts for exactly that failure
+had been written in advance, and neither reached a human — an orphaned container
+was blocking metric collection at one end while a revoked webhook swallowed
+notifications at the other. **The monitoring for backups was itself unmonitored.**
+And the sequel, found two days later: `velero node-agent` had lost its pod cache
+during the outage and had been failing every volume backup since 26-09. Three
+days with no backup of the application data, while the etcd backups ran and were
+verified throughout. `Ready` is a liveness claim, not a correctness one.
 
 ## Request path
 
@@ -97,10 +112,20 @@ Deliberate, with compensating controls — see
 [PROJECT_STATE.md](docs/PROJECT_STATE.md).
 
 - **Single control-plane node.** Not fixable on one laptop. Mitigated by
-  6-hourly encrypted etcd backups, verified restorable off-cluster.
-- **etcd on a spinning disk.** Adequate at idle, collapses under concurrent
-  load. Mitigated by latency recording rules, a critical alert, and raised
-  leader-election deadlines. The real fix is an SSD.
+  6-hourly encrypted etcd backups, verified restorable off-cluster — and
+  restored for real, twice, in September.
+- **etcd on a hybrid drive.** The guests live on a Seagate ST1000LX015 SSHD:
+  15 ms fsync p99 at idle, **1,341 ms under concurrent load**. Mitigated by
+  latency recording rules, a critical alert, and raised leader-election
+  deadlines. The real fix is an NVMe.
+- **Guest durability depends on the host.** Four corruption events, all
+  following an unclean host reset, on media reporting zero errors. Mitigated by
+  disabling host sleep and Windows Update auto-reboot, and by backups. The real
+  fix is the KVM migration in ADR-006.
+- **Backups are off-cluster, not off-site.** The hourly pull writes to `C:`, the
+  Samsung NVMe — a *different physical disk* from the VMs it protects on `D:`, so
+  losing the guest disk loses no backups. But both disks sit in one chassis:
+  theft, a PSU failure or the laptop dying takes every copy.
 
 ## Repository layout
 
