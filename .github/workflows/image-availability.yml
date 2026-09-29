@@ -1,0 +1,89 @@
+name: image availability
+
+# Can every image this platform deploys still be pulled?
+#
+# Upstream withdrawal has broken this project three times: dl.min.io started
+# returning HTTP 410, then quay.io/minio/minio began returning 401, then
+# quay.io/minio/mc did too - and mc could not be mirrored because no copy of it
+# existed anywhere. Each was discovered by a component failing, not by anyone
+# asking the question.
+#
+# A registry allowlist would have caught none of them: quay.io/minio was already
+# in use for the server image when mc appeared. The check has to be manifest
+# existence, not registry identity.
+#
+# Not in the PR gate on purpose. Roughly 15 of these are on Docker Hub, whose
+# anonymous rate limit is per-IP and shared across GitHub's runners, so this
+# would be an intermittently red required check - which is worse than no check.
+# Daily is enough: the question is "is this still rebuildable", not "did this
+# commit break it".
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  pullable:
+    name: every image resolves
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Install skopeo
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
+
+      # Our own GHCR packages are private. This may fail if the package is not
+      # linked to this repository, which is why a ghcr.io/shaggydesai failure
+      # below is a warning rather than an error - we control those images.
+      - name: Log in to GHCR
+        continue-on-error: true
+        run: echo '${{ secrets.GITHUB_TOKEN }}' | skopeo login ghcr.io -u '${{ github.actor }}' --password-stdin
+
+      - name: Collect every image the charts render
+        run: |
+          set -euo pipefail
+          for dir in kubernetes/platform/*/; do
+            [ -f "$dir/Chart.yaml" ] || continue
+            helm template "$(basename "$dir")" "$dir" 2>/dev/null || true
+          done > /tmp/rendered.yaml
+          grep -ohE 'image:[[:space:]]*"?[^"[:space:]]+' /tmp/rendered.yaml \
+            | sed -E 's/image:[[:space:]]*"?//' | sort -u > /tmp/images.txt
+          echo "found $(wc -l < /tmp/images.txt) distinct images"
+          cat /tmp/images.txt
+          # Never pass vacuously: an extraction that finds nothing would report
+          # a clean bill of health forever.
+          test "$(wc -l < /tmp/images.txt)" -ge 20
+
+      - name: Resolve each manifest
+        run: |
+          set -uo pipefail
+          hard=0
+          while read -r img; do
+            [ -n "$img" ] || continue
+            ok=0
+            for attempt in 1 2 3; do
+              if err=$(skopeo inspect --raw --override-os linux --override-arch amd64 \
+                         "docker://$img" 2>&1 >/dev/null); then
+                ok=1; break
+              fi
+              sleep $((attempt * 5))
+            done
+            if [ "$ok" = 1 ]; then
+              printf 'OK    %s\n' "$img"
+            elif case "$img" in ghcr.io/shaggydesai/*) true;; *) false;; esac; then
+              printf '::warning::our own private image did not resolve: %s (%s)\n' \
+                "$img" "$(echo "$err" | tail -1 | cut -c1-120)"
+            else
+              printf '::error::%s cannot be pulled: %s\n' \
+                "$img" "$(echo "$err" | tail -1 | cut -c1-120)"
+              hard=$((hard + 1))
+            fi
+          done < /tmp/images.txt
+          echo "---- $hard image(s) unresolvable"
+          exit $hard
