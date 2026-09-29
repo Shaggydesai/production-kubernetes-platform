@@ -14,7 +14,7 @@
     owner: root
     group: root
     mode: '0644'
-  notify: reload systemd
+  notify: Reload systemd
 
 - name: Install etcd defrag systemd timer
   ansible.builtin.copy:
@@ -23,7 +23,7 @@
     owner: root
     group: root
     mode: '0644'
-  notify: reload systemd
+  notify: Reload systemd
 
 - name: Flush handlers so the units exist before we enable them
   ansible.builtin.meta: flush_handlers

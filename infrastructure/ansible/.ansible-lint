@@ -1,0 +1,6 @@
+---
+exclude_paths:
+  # Vendored upstream: byte-identical to the published flannel release manifest.
+  # Its indentation is flannel's, not ours, and reformatting it would defeat the
+  # point of vendoring. 29 of the 36 findings on 2026-09-29 were in this one file.
+  - roles/cni_flannel/files/kube-flannel.yml

@@ -22,7 +22,11 @@
     group: root
     mode: "0700"
 
-- name: Back up manifests that are about to change
+# noqa no-handler: a handler runs at the end of the play, by which point the
+# manifest this backs up has already been overwritten. The backup has to happen
+# inline, before the change. `when` here tests a PREVIOUS task's registered
+# result, not this task's own.
+- name: Back up manifests that are about to change  # noqa: no-handler
   ansible.builtin.copy:
     src: "/etc/kubernetes/manifests/{{ item.item.file }}"
     dest: "{{ control_plane_metrics_backup_dir }}/{{ item.item.file }}.{{ ansible_date_time.epoch }}"
