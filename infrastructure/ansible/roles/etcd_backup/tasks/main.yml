@@ -91,3 +91,32 @@
     owner: "{{ etcd_backup_pull_user }}"
     group: "{{ etcd_backup_pull_user }}"
     mode: "0600"
+
+- name: Install the backup-pull observer script
+  ansible.builtin.copy:
+    src: etcd-pull-observe.sh
+    dest: /usr/local/sbin/etcd-pull-observe.sh
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install the backup-pull observer units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - etcd-pull-observe.service
+    - etcd-pull-observe.timer
+  notify: Reload systemd
+
+- name: Apply systemd reload before enabling the observer timer
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the backup-pull observer timer
+  ansible.builtin.systemd:
+    name: etcd-pull-observe.timer
+    enabled: true
+    state: started

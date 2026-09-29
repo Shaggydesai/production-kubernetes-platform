@@ -1,0 +1,9 @@
+[Unit]
+Description=Record when the laptop last pulled etcd backups
+After=systemd-journald.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/etcd-pull-observe.sh
+Nice=19
+IOSchedulingClass=idle
