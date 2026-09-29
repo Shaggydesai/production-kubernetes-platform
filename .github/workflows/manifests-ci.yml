@@ -1,0 +1,134 @@
+name: manifests CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'kubernetes/**'
+      - 'infrastructure/ansible/**'
+      - '.github/workflows/manifests-ci.yml'
+  # No paths filter on pull_request, deliberately - same reason as
+  # taskflow-api-ci.yml. A filtered workflow never starts on an unrelated PR, so
+  # any job here that is later made a required status check would sit "expected"
+  # forever and block the merge. These jobs are hermetic and take about a minute.
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  charts:
+    name: helm lint and render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      # Every chart's dependencies are vendored as .tgz under charts/, so this
+      # needs no network and no `helm repo add`.
+      - name: Lint and render every platform chart
+        run: |
+          set -uo pipefail
+          rc=0
+          mkdir -p /tmp/rendered
+          for dir in kubernetes/platform/*/; do
+            name=$(basename "$dir")
+            [ -f "$dir/Chart.yaml" ] || { echo "skip $name (plain manifests)"; continue; }
+            echo "::group::$name"
+            helm lint "$dir" || rc=1
+            helm template "$name" "$dir" > "/tmp/rendered/$name.yaml" || rc=1
+            echo "::endgroup::"
+          done
+          exit $rc
+
+      # 2026-09-28: an ExternalSecret placed in a chart's templates/ has ESO's
+      # own {{ .username }} eaten by Helm unless it is wrapped in a raw string.
+      # The result renders green and produces a Secret that authenticates as
+      # nobody. Assert the literal survives.
+      - name: ESO templating must survive Helm rendering
+        run: |
+          grep -q '{{ .username }}' /tmp/rendered/minio.yaml || {
+            echo "Helm consumed ESO's template - see minio/templates/externalsecret-ghcr.yaml"
+            exit 1
+          }
+
+      # quay.io/minio has returned 401 to anonymous pulls since Sept 2026 and
+      # `mc` cannot be mirrored because no copy of it exists. Setting
+      # `buckets: []` did NOT suppress the chart's mc Job - four other values
+      # also gate it. If it ever comes back, break the build, not the cluster.
+      - name: No manifest may PULL from quay.io/minio
+        run: |
+          set -uo pipefail
+          # Image fields only. Our own comments name this registry when
+          # explaining why it is banned, and Helm passes template comments
+          # through to rendered output - matching those would fail the check for
+          # the wrong reason, which is how this step was first written.
+          if grep -rhoE 'image:[[:space:]]*"?[^"[:space:]]+' /tmp/rendered/ \
+               | sed -E 's/image:[[:space:]]*"?//' \
+               | grep -E '^quay\.io/minio'; then
+            echo "quay.io/minio is unreachable (401 since Sept 2026) and mc cannot be mirrored"
+            exit 1
+          fi
+
+  rules:
+    name: promtool check rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Fetch promtool
+        run: |
+          set -euo pipefail
+          V=3.0.1
+          curl -fsSL -o /tmp/p.tgz \
+            "https://github.com/prometheus/prometheus/releases/download/v${V}/prometheus-${V}.linux-amd64.tar.gz"
+          tar -xzf /tmp/p.tgz -C /tmp
+          sudo install "/tmp/prometheus-${V}.linux-amd64/promtool" /usr/local/bin/
+
+      # Alert rules are hand-edited in a Helm values file and were previously
+      # validated by nothing but a YAML round-trip, which cannot catch a bad
+      # PromQL expression.
+      - name: Extract and check the alert rules
+        run: |
+          set -euo pipefail
+          helm template kps kubernetes/platform/kube-prometheus-stack > /tmp/kps.yaml
+          python3 - <<'PY'
+          import yaml, pathlib
+          out = pathlib.Path("/tmp/rules"); out.mkdir(exist_ok=True)
+          n = 0
+          for doc in yaml.safe_load_all(open("/tmp/kps.yaml")):
+              if isinstance(doc, dict) and doc.get("kind") == "PrometheusRule":
+                  n += 1
+                  out.joinpath(doc["metadata"]["name"] + ".yaml").write_text(
+                      yaml.safe_dump(doc["spec"]))
+          print("extracted", n, "PrometheusRule objects")
+          # Never let this pass vacuously: zero extracted means the extraction
+          # is broken, which would silently stop checking anything.
+          assert n > 0, "no PrometheusRule rendered - extraction is wrong"
+          PY
+          promtool check rules /tmp/rules/*.yaml
+
+  ansible:
+    name: ansible-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Pinned to exactly what cp01 runs, both packages.
+      #
+      # A floor pin is not a pin: 'ansible-core>=2.16' let pip install the
+      # newest core, which removed ansible.parsing.yaml.constructor, and
+      # ansible-lint 24 cannot import it. The job died in 12 seconds on a
+      # ModuleNotFoundError.
+      #
+      # Exact pins also mean CI agrees with the local linter - findings you
+      # cannot reproduce are worse than no findings - and that a new upstream
+      # release cannot turn main red without anything in this repo changing.
+      - run: pip install 'ansible-core==2.16.3' 'ansible-lint==6.17.2'
+      - name: Lint the roles
+        working-directory: infrastructure/ansible
+        run: ansible-lint --profile production
