@@ -1,6 +1,9 @@
 # ADR-006: One-command platform bootstrap
 
-**Status:** Accepted — 2026-09-26
+**Status:** Accepted — 2026-09-26. **Blocked** since 2026-09-28: the replacement
+Intel 660p was dead on arrival — invisible in all four controller slots, with the
+original Samsung drive working in the same slot as a control — so the migration
+cannot begin until another NVMe arrives.
 **Supersedes:** the manual build in `docs/production-kubernetes-platform-k8s-docs/01`–`08`
 
 ## Context
@@ -15,8 +18,8 @@ but repeating it takes an afternoon and the result depends on who is typing.
 - Postmortem item 13 (a full rebuild drill) has never been executed, because
   executing it means repeating the whole manual build.
 
-The host is also changing: a 1 TB SSD running Ubuntu replaces Windows + VMware
-Workstation. That forces the virtualisation layer to be rebuilt regardless,
+The host is also changing: an NVMe SSD running Ubuntu replaces the 256 GB drive
+running Windows + VMware Workstation. That forces the virtualisation layer to be rebuilt regardless,
 which makes this the right moment to make the stack declarative rather than to
 port a manual process onto a new hypervisor.
 

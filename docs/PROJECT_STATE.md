@@ -68,8 +68,8 @@ its host.
 
 | # | Risk | Mitigation | Revisit |
 |---|------|-----------|---------|
-| 12 | Single control-plane node | Verified 6-hourly encrypted etcd backups, off-site copy, proven restorable | Not fixable on one laptop |
-| 14 | etcd on HDD: 15 ms fsync p99 idle, 1,341 ms under load | `lab:etcd_wal_fsync_p99` trending, `EtcdDiskCriticallySlow`, raised leader-election deadlines | SSD migration |
+| 12 | Single control-plane node | Verified 6-hourly encrypted etcd backups, off-cluster copy on a different physical disk from the guests, proven restorable | Not fixable on one laptop |
+| 14 | etcd on a Seagate ST1000LX015 SSHD: 15 ms fsync p99 idle, 1,341 ms under load | `lab:etcd_wal_fsync_p99` trending, `EtcdDiskCriticallySlow`, raised leader-election deadlines | SSD migration |
 
 ## Open
 
