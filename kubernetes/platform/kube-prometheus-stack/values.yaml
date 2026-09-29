@@ -211,6 +211,25 @@ kube-prometheus-stack:
               annotations:
                 summary: "etcd defrag job failed on its last run"
                 description: "Reported by the job itself. The 14-day staleness alert could not catch this: before 2026-09-28, a run that could not reach etcd read empty db sizes, took the skip branch because empty strings evaluate to 0, and wrote a FRESH success timestamp. Check: journalctl -u etcd-defrag -n 50"
+    etcd-pull:
+      groups:
+        - name: etcd-pull
+          rules:
+            - alert: EtcdBackupPullStale
+              expr: time() - etcd_pull_last_seen_timestamp_seconds > 3 * 3600
+              for: 30m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Backups have not left cp01 in over 3 hours"
+                description: "The laptop pulls hourly over read-only SFTP, and cp01 observes it in its own sshd log because Prometheus cannot scrape the laptop and the laptop must not be able to write into the cluster. Until 2026-09-28 this last link had no monitoring at all - it failed ten times overnight on 27/28-09 and nothing noticed. A metric of 0 means no pull in 7 days. Check: journalctl -u ssh | grep etcdpull, then the scheduled task and C:\\Backups\\pull-etcd.log on the laptop"
+            - alert: EtcdBackupPullMetricMissing
+              expr: absent(etcd_pull_last_seen_timestamp_seconds)
+              for: 2h
+              labels:
+                severity: warning
+              annotations:
+                summary: "No backup-pull metric: the observer timer or node-exporter may be broken"
     velero-offsite:
       groups:
         - name: velero-offsite
