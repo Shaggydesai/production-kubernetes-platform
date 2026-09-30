@@ -109,12 +109,21 @@ kubectl get externalsecret -A -o json | jq -r '.items[] | .metadata.namespace + 
   `kv destroy` is permanent. Destroy the versions holding a leaked value and then
   confirm with step 10 — on 2026-09-25 this was skipped and three burned Discord
   webhook URLs stayed readable for five days.
-- **Cap the history.** `vault kv metadata put -max-versions=2 secret/<path>`
-  keeps the current value plus one rollback, which is enough to recover a botched
-  rotation. As of 2026-09-30 only `secret/alertmanager` is capped; every other
-  path is `max_versions=0`, unlimited. Whether a cap applies retroactively to
-  existing versions is **unverified** — do not cap a path whose history you have
-  not reviewed, or the cap may destroy it for you.
+- **Cap the history, but destroy first.** `vault kv metadata put -max-versions=2
+  secret/<path>` keeps the current value plus one rollback, enough to recover a
+  botched rotation. Every path is capped at 2 as of 2026-09-30.
+
+  Measured on a throwaway path that day, because the order matters. Setting a cap
+  is **not** retroactive: five existing versions all stayed `live` when the cap
+  was set to 2. The **next write** then pruned versions 1-4 — and they vanished
+  from the metadata entirely rather than appearing as `destroyed: true`. A cap is
+  therefore a delayed, silent destruction with no audit record. Destroy stale
+  versions explicitly first and then cap: `kv destroy` leaves evidence, a prune
+  leaves none.
+
+  This also explains `secret/demo-app` reading `current=11` with only 10 version
+  blocks and nothing destroyed — a cap was set at some point, a write pruned
+  version 1 out of existence, and the cap was later returned to 0.
 - **If a value leaked publicly** (a chat log, a screenshot, a commit), treat it as
   compromised: rotate it, don't just hide it.
 
@@ -189,6 +198,31 @@ kubectl -n <ns> get secret <name> -o jsonpath='{.data.<key>}' | base64 -d \
 
 Terminal output ends up in transcripts, tickets and screenshots. Redact at the
 source, because you cannot un-share a credential — you can only rotate it.
+
+### Hashing a Vault value: exclude `request_id`
+
+`vault kv get -format=json` cannot be hashed for comparison as-is. Its response
+envelope carries a fresh `request_id` on every call, so two identical reads of an
+unchanged path hash differently:
+
+    vault kv get -format=json secret/ghcr | sha256sum   ->  58b7828d5b33d7ef
+    vault kv get -format=json secret/ghcr | sha256sum   ->  22268f569413e417
+
+Filter it out and the hash is stable:
+
+    vault kv get -format=json secret/ghcr | grep -v request_id | sha256sum
+        ->  611dedf0af5abef6      (both calls)
+
+On 2026-09-30 a before/after check built on the unfiltered hash reported all
+eight paths as CHANGED after a destroy sweep — including three paths that had
+nothing done to them at all. Those three were the control that showed the check
+was broken rather than the data. Include a path you expect **not** to change in
+any such comparison; without one, a broken check looks exactly like a disaster.
+
+To verify a destroy sweep instead, check three things that do not depend on
+hashing: no path gained a new version (every `current_version` should predate the
+sweep), no non-current version is still readable, and every ExternalSecret still
+reports `SecretSynced`.
 
 ## Discord webhook (Alertmanager)
 
