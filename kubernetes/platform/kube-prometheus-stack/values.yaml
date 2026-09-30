@@ -380,6 +380,46 @@ kube-prometheus-stack:
                 description: >-
                   Backups will start failing. Expand the PVC or reduce Velero's
                   retention.
+            # The velero-backups bucket was created 2026-09-20 10:42 UTC. No
+            # commit touches MinIO between 09-10 and 09-28, and Argo CD's history
+            # for the app was reset (id 0), so nothing in the declared state or
+            # its audit trail explains how that bucket came to exist.
+            #
+            # The archaeology is unrecoverable. What was missing was any control
+            # that would notice next time - nothing compared the buckets that
+            # exist against the buckets we declare. This is that control.
+            #
+            # The bucket list in this regex MUST match bucketProvisioning.buckets
+            # in kubernetes/platform/minio/values.yaml. CI asserts the two agree,
+            # so declaring a new bucket fails the build until this is updated,
+            # rather than paging until someone remembers which file to edit.
+            - alert: MinIOUndeclaredBucket
+              expr: group by (bucket) (minio_bucket_usage_object_total{bucket!~"velero-backups"})
+              for: 15m
+              labels:
+                severity: warning
+              annotations:
+                summary: "MinIO bucket {{ $labels.bucket }} exists but is not declared in Git"
+                description: >-
+                  Either something created a bucket outside the declared state,
+                  or a bucket was added to bucketProvisioning.buckets without
+                  updating this alert. Either way the backup target and Git
+                  disagree about what exists.
+            # The reverse direction. Guarded on the scrape target being up:
+            # without `and on() (up{job="minio-bucket"} == 1)` this would fire as
+            # a critical "bucket missing" during any scrape outage, which is a
+            # misleading cause for a page. MinIOMetricsMissing owns that case.
+            - alert: MinIODeclaredBucketMissing
+              expr: absent(minio_bucket_usage_object_total{bucket="velero-backups"}) and on() (up{job="minio-bucket"} == 1)
+              for: 15m
+              labels:
+                severity: critical
+              annotations:
+                summary: "Declared MinIO bucket velero-backups does not exist"
+                description: >-
+                  Velero has nowhere to write, and today that would surface only
+                  as a backup failure hours later. Check the minio-create-buckets
+                  PostSync Job and the Longhorn volume.
 
   alertmanager:
     # The running config does NOT come from here. useExistingSecret +
