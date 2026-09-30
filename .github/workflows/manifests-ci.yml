@@ -120,6 +120,55 @@ jobs:
           sys.exit(1 if bad else 0)
           PY
 
+      # MinIOUndeclaredBucket carries a literal list of declared bucket names,
+      # and bucketProvisioning.buckets in the minio chart carries the same list.
+      # Two copies of one fact drift: that is how "mc cannot be mirrored" came to
+      # be written in three places, two of them wrong. This asserts they agree,
+      # so adding a bucket fails the build until both files are updated, instead
+      # of paging until someone works out which file to edit.
+      #
+      # Also requires an absent() alert per declared bucket, so a second bucket
+      # cannot be declared without gaining the same protection as the first.
+      - name: MinIO bucket alerts must match the declared buckets
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import re, sys, yaml
+
+          minio = yaml.safe_load(open("kubernetes/platform/minio/values.yaml"))
+          declared = sorted(minio["bucketProvisioning"]["buckets"])
+          assert declared, "bucketProvisioning.buckets is empty - nothing to reconcile"
+
+          kps = yaml.safe_load(open("kubernetes/platform/kube-prometheus-stack/values.yaml"))
+          rmap = kps.get("kube-prometheus-stack", kps)["additionalPrometheusRulesMap"]
+          rules = {r["alert"]: " ".join(r["expr"].split())
+                   for e in rmap.values() for g in e["groups"]
+                   for r in g["rules"] if "alert" in r}
+
+          bad = []
+          expr = rules.get("MinIOUndeclaredBucket")
+          if not expr:
+              bad.append("MinIOUndeclaredBucket is missing entirely")
+          else:
+              m = re.search(r'bucket!~"([^"]*)"', expr)
+              if not m:
+                  bad.append(f'MinIOUndeclaredBucket has no bucket!~"..." matcher: {expr}')
+              else:
+                  in_alert = sorted(x for x in m.group(1).split("|") if x)
+                  if in_alert != declared:
+                      bad.append(f"values.yaml declares {declared} but the alert excludes {in_alert}")
+
+          for b in declared:
+              if not any(f'bucket="{b}"' in e and e.startswith("absent(")
+                         for e in rules.values()):
+                  bad.append(f"no absent() alert covers declared bucket {b!r}")
+
+          for x in bad:
+              print("FAIL:", x)
+          print(f"declared buckets: {declared}  alerts checked: {len(rules)}")
+          sys.exit(1 if bad else 0)
+          PY
+
   rules:
     name: promtool check rules
     runs-on: ubuntu-latest
