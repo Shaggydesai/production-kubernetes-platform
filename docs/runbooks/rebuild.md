@@ -106,12 +106,26 @@ The pull side needs no new credential: `secret/ghcr` already holds a
 the `minio` namespace. Delete the push token afterwards — it is a bootstrap
 credential like the Vault unseal shares, and it does not belong in Vault.
 
-**`mc` cannot be mirrored at all.** No copy of it exists on our side, so bucket
-creation moved to `templates/job-create-bucket.yaml`, a PostSync Job running
-`aws-cli` pinned by manifest digest. The chart's own Job is suppressed by
-pinning all five of its gate keys — `buckets`, `users`, `policies`, `svcaccts`,
-`customCommands` — to empty. Emptying `buckets` alone does **not** work; the
-Job still renders.
+**The `mc` image cannot be pulled; the `mc` binary is not lost.**
+`quay.io/minio/mc` returns 401 exactly like the server image, and unlike the
+server image we hold no archive of it — but `/usr/bin/mc` ships inside the MinIO
+server image that is already mirrored to GHCR. An earlier version of this
+runbook said no copy of `mc` existed on our side. That was wrong, and it would
+have pushed you toward creating buckets by hand during a rebuild.
+
+Bucket creation nevertheless moved to `templates/job-create-bucket.yaml`, a
+PostSync Job running `aws-cli` pinned by manifest digest; switching it to `mc`
+from the mirrored image is tracked separately. The chart's own Job is suppressed
+by pinning all five of its gate keys — `buckets`, `users`, `policies`,
+`svcaccts`, `customCommands` — to empty. Emptying `buckets` alone does **not**
+work; the Job still renders.
+
+Pinning `users` matters for a second reason. Chart 5.4.0's default declares a
+`console` / `console123` account with the `consoleAdmin` policy, created by
+`createUser` in a mounted ConfigMap script. That account was never present in
+the running server — verified directly, behind an authentication gate — but it
+was genuinely declared by a manifest this repo applied. CI now fails any render
+that invokes `createUser` or brings back `minio-post-job`.
 
 ## Build
 
