@@ -1,0 +1,63 @@
+# Our own ServiceMonitor rather than the subchart's metrics.serviceMonitor.
+#
+# The chart's ServiceMonitor is gated on `enabled AND includeNode`, so setting
+# metrics.serviceMonitor.enabled: true produces no ServiceMonitor at all - only a
+# Probe that points prober.url at MinIO itself to scrape
+# /minio/v2/metrics/cluster. Neither covers /minio/v2/metrics/bucket, the only
+# path carrying minio_bucket_* series, so the chart's own knobs cannot express
+# what we need even when set correctly.
+#
+# The release label is load-bearing, not decoration. Every selector on the
+# Prometheus CR - serviceMonitor, podMonitor, probe and scrapeConfig - matches
+# release=kube-prometheus-stack. Without it this object is created, reports no
+# error, and is never scraped.
+#
+# Each endpoint carries its own job label. Measured 2026-09-30: the cluster and
+# node paths share 24 metric names, cluster and bucket share 1. Scraped under a
+# single job they would produce identical target labelsets on different paths
+# and silently lose samples.
+#
+# The port is named "http" because tls.enabled is false - the chart names the
+# port after the scheme.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: minio
+  labels:
+    release: kube-prometheus-stack
+spec:
+  # No namespaceSelector. A ServiceMonitor without one selects Services in its
+  # own namespace, which is what we want. Naming .Release.Namespace explicitly
+  # rendered as "default" under `helm template` in CI while being correct under
+  # Argo CD - a value that differs between what CI checks and what runs, for no
+  # benefit.
+  # monitoring: "true" is unconditional in the chart's Service template and is
+  # absent from minio-console, so this selects the API Service only.
+  selector:
+    matchLabels:
+      release: {{ .Release.Name | quote }}
+      monitoring: "true"
+  endpoints:
+    - port: http
+      scheme: http
+      path: /minio/v2/metrics/cluster
+      interval: 30s
+      relabelings:
+        - targetLabel: job
+          replacement: minio-cluster
+    - port: http
+      scheme: http
+      path: /minio/v2/metrics/node
+      interval: 30s
+      relabelings:
+        - targetLabel: job
+          replacement: minio-node
+    # Bucket metrics are per-bucket cardinality and change slowly; 60s is
+    # plenty for capacity trends and for #47's undeclared-bucket detection.
+    - port: http
+      scheme: http
+      path: /minio/v2/metrics/bucket
+      interval: 60s
+      relabelings:
+        - targetLabel: job
+          replacement: minio-bucket
