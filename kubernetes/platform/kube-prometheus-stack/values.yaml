@@ -310,6 +310,76 @@ kube-prometheus-stack:
                 severity: warning
               annotations:
                 summary: "No etcd backup metric: backup script or node-exporter textfile collector broken"
+    minio:
+      groups:
+        - name: minio
+          rules:
+            # MinIO holds every Velero backup. Until 2026-09-30 nothing scraped
+            # it at all - Prometheus had 1879 metric names and zero minio_* - so
+            # loss of the backup target surfaced only as a Velero failure hours
+            # later.
+            - alert: MinIOTargetDown
+              expr: up{job=~"minio-.*"} == 0
+              for: 10m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Prometheus cannot scrape MinIO {{ $labels.job }} on {{ $labels.instance }}"
+                description: >-
+                  The endpoint exists but the scrape is failing. Check the pod,
+                  and that MINIO_PROMETHEUS_AUTH_TYPE is still public - a
+                  non-public metrics endpoint needs a bearer token this
+                  ServiceMonitor does not supply.
+            # Three jobs are expected: minio-cluster, minio-node, minio-bucket.
+            # `count() != 3` catches one job vanishing but returns NO series when
+            # all three vanish, so it cannot fire in the worst case - absent()
+            # covers that. `up == 0` above covers neither case, because a dead
+            # pod takes the Service endpoint and the whole `up` series with it.
+            - alert: MinIOMetricsMissing
+              expr: absent(up{job=~"minio-.*"}) or count(up{job=~"minio-.*"}) != 3
+              for: 30m
+              labels:
+                severity: warning
+              annotations:
+                summary: "MinIO has the wrong number of scrape targets, or none"
+                description: >-
+                  Expected 3 - cluster, node, bucket. Check the ServiceMonitor's
+                  release=kube-prometheus-stack label, which every selector on
+                  the Prometheus CR requires, and the minio Service's
+                  monitoring=true label.
+            # Single drive with erasure coding EC:0: an offline drive is not
+            # degraded redundancy, it is the backup target gone.
+            - alert: MinIODriveOffline
+              expr: minio_cluster_drive_offline_total > 0
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "{{ $value }} MinIO drive(s) offline"
+                description: >-
+                  This deployment is single-drive with EC:0, so there is no
+                  redundancy to lose. Check the Longhorn volume and the minio
+                  pod's events.
+            - alert: MinIOCapacityLow
+              expr: minio_cluster_capacity_usable_free_bytes / minio_cluster_capacity_usable_total_bytes < 0.20
+              for: 30m
+              labels:
+                severity: warning
+              annotations:
+                summary: "MinIO is below 20% free ({{ $value | humanizePercentage }})"
+                description: >-
+                  The PVC is 5Gi and Velero backups accumulate. A full backup
+                  target fails backups rather than reporting a disk problem.
+            - alert: MinIOCapacityCritical
+              expr: minio_cluster_capacity_usable_free_bytes / minio_cluster_capacity_usable_total_bytes < 0.10
+              for: 10m
+              labels:
+                severity: critical
+              annotations:
+                summary: "MinIO is below 10% free ({{ $value | humanizePercentage }})"
+                description: >-
+                  Backups will start failing. Expand the PVC or reduce Velero's
+                  retention.
 
   alertmanager:
     # The running config does NOT come from here. useExistingSecret +
