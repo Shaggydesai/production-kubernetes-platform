@@ -141,6 +141,30 @@ Rotate when the key is exposed, or annually.
 2. **Store the private key before anything else.** Open it in an editor and copy it
    into the password manager; write the `AGE-SECRET-KEY-1` line on paper. Do not
    `cat` it — terminal echo is exactly how the 2026-09-25 exposure happened.
+   **Then verify each copy, or you have not stored it.** `age-keygen -y` derives
+   the public half from an identity file, so a copy can be proven correct without
+   ever printing it. Type the key in from the copy under test — from the paper for
+   the paper, from the password manager for that one. Copying out of the working
+   file proves nothing about either:
+
+       umask 077
+       TMP=$(mktemp); trap 'shred -u "$TMP" 2>/dev/null' EXIT
+       printf 'key from the copy under test: '; IFS= read -rs K; echo
+       printf '%s\n' "$K" > "$TMP"; unset K
+       age-keygen -y "$TMP"        # must equal recipient.txt
+
+   A typo fails the bech32 checksum and derives nothing, so a mistake surfaces as
+   an error rather than a silent wrong answer. A *valid* key deriving to a
+   different recipient is the dangerous case: it is a retired identity, which
+   looks like a backup and opens nothing written since the rotation.
+
+   Until 2026-09-30 this step had never been verified. The identity sat in
+   `~/age-new.txt` on the workstation and in the password manager, and neither
+   copy had been checked against anything. Both were then proven to derive the
+   committed recipient, the password-manager copy was proven to decrypt that
+   morning's archive, and the working file was shredded — `shred` on WSL2's ext4
+   inside a VHDX is proportionate, not a guarantee.
+
 3. **Replace the recipient.** Both `etcd-backup.sh` and `velero-offsite.sh` read
    `/etc/etcd-backup/recipient.txt`, so one file change rotates both. Merge by PR,
    then run `ansible-playbook playbooks/hosts.yml --limit control_plane -K`.

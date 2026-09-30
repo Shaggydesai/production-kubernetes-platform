@@ -70,17 +70,10 @@ its host.
 |---|------|-----------|---------|
 | 12 | Single control-plane node | Verified 6-hourly encrypted etcd backups, off-cluster copy on a different physical disk from the guests, proven restorable | Not fixable on one laptop |
 | 14 | etcd on a Seagate ST1000LX015 SSHD: 15 ms fsync p99 idle, 1,341 ms under load | `lab:etcd_wal_fsync_p99` trending, `EtcdDiskCriticallySlow`, raised leader-election deadlines | SSD migration |
+| 15 | Both copies of the age identity live in the same building as the laptop, so one fire or theft loses every encrypted backup | Verified 2026-09-30: the password-manager copy and the offline paper copy each derive the committed recipient, and the password-manager copy decrypted that morning's archive end to end. No plaintext identity remains on disk | A copy held elsewhere, if the archives ever leave the building |
 
 ## Open
 
-- **Age private key not confirmed replicated.** The identity rotated on
-  2026-09-25 12:18 exists in exactly one location on the operator's workstation
-  and has not been confirmed replicated anywhere else. Every etcd and Velero
-  archive written since 12:18 is encrypted to its public half, so losing that
-  one file makes every current backup permanently unreadable. Fix: store the identity in the password
-  manager, verify a decrypt from that copy, then remove the working file. This
-  outranks risk 12 (single control-plane node), because the backups are the
-  mitigation for risk 12.
 - **Postmortem item 13 — the rebuild drill has still never been run.** It is now
   *executable* rather than theoretical: `make up` plus two manual steps, see
   `docs/runbooks/rebuild.md`. Every layer passes syntax and lint checks, and none
