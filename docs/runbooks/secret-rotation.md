@@ -54,6 +54,29 @@ kubectl get externalsecret -A -o json | jq -r '.items[] | .metadata.namespace + 
 9. **Destroy the old Vault versions** so the leaked value can't be read back:
    `vault kv destroy -versions=<n,...> secret/<path>`
 
+   `kv delete` is **not** enough. A soft delete is reversible with `kv undelete`
+   and the value stays recoverable. Only `kv destroy` removes the data.
+
+10. **Confirm no readable history remains.** The rotation is not finished until
+    this reports `none`. Parse the metadata rather than grepping it — counting
+    `destroyed  false` lines with busybox `grep -c` reported "8 versions, 10
+    undestroyed" on 2026-09-30, which is impossible, and impossible output is
+    the good case; plausible-but-wrong output is what gets acted on.
+
+        python3 - <<'"'"'PY'"'"'
+        import json, re, pathlib
+        raw = pathlib.Path("/tmp/meta.json").read_text()
+        d = json.loads(re.search(r"\{.*\}", raw, re.S).group(0))["data"]
+        cur = d["current_version"]
+        for k, v in sorted(d["versions"].items(), key=lambda x: int(x[0])):
+            state = ("DESTROYED" if v["destroyed"]
+                     else "soft-deleted" if v.get("deletion_time") else "live")
+            print(f"version {k}: {state}")
+        stale = [k for k, v in d["versions"].items()
+                 if not v["destroyed"] and int(k) != cur]
+        print("readable non-current versions:", stale or "none")
+        PY
+
 ---
 
 ## 3. Per-secret notes
@@ -81,7 +104,17 @@ kubectl get externalsecret -A -o json | jq -r '.items[] | .metadata.namespace + 
 - **Never echo a secret.** Use `read -rsp` for input, and pipe values through
   stdin instead of putting them in command arguments (they show up in the process
   list and in shell history).
-- **Vault keeps old versions.** Destroy the versions holding a leaked value.
+- **Vault keeps old versions, and they are readable.** Anyone who can read the
+  current value can read every previous one. `kv delete` is reversible; only
+  `kv destroy` is permanent. Destroy the versions holding a leaked value and then
+  confirm with step 10 — on 2026-09-25 this was skipped and three burned Discord
+  webhook URLs stayed readable for five days.
+- **Cap the history.** `vault kv metadata put -max-versions=2 secret/<path>`
+  keeps the current value plus one rollback, which is enough to recover a botched
+  rotation. As of 2026-09-30 only `secret/alertmanager` is capped; every other
+  path is `max_versions=0`, unlimited. Whether a cap applies retroactively to
+  existing versions is **unverified** — do not cap a path whose history you have
+  not reviewed, or the cap may destroy it for you.
 - **If a value leaked publicly** (a chat log, a screenshot, a commit), treat it as
   compromised: rotate it, don't just hide it.
 
@@ -138,6 +171,13 @@ source, because you cannot un-share a credential — you can only rotate it.
 Rotated 2026-09-25 after the URL was echoed to a terminal. Any webhook URL that
 has appeared on a screen, in a chat, or in shell history is burned.
 
+Step 9 was skipped that day. Versions 1, 2 and 3 of `secret/alertmanager` held
+three distinct burned webhook URLs — confirmed by comparing hashes, never values
+— and stayed readable until 2026-09-30, when they were destroyed and the path was
+capped at `max_versions=2`. The rotation looked finished for five days because
+everything a rotation is normally judged by was true the whole time: ESO reported
+`SecretSynced`, Alertmanager reloaded, and notifications were delivered.
+
 ### Find the real Vault path first
 
 The ExternalSecret is the authority on where the value lives. Read it before
@@ -189,8 +229,8 @@ the `vault kv` output is the same tell: it means you just created a new path.
          | kubectl -n vault exec -i vault-0 -- sh -c '
          read -r VU; read -r VP; read -r WH
          export VAULT_ADDR=http://127.0.0.1:8200
-         VAULT_TOKEN=$(vault login -token-only -method=userpass \
-           username="$VU" password="$VP") || exit 1
+         VAULT_TOKEN=$(printf "%s" "$VP" \
+           | vault write -field=token auth/userpass/login/"$VU" password=-) || exit 1
          export VAULT_TOKEN
          if ! printf "%s" "$WH" \
            | vault kv patch secret/alertmanager discord-webhook-url=-; then
@@ -206,7 +246,17 @@ the `vault kv` output is the same tell: it means you just created a new path.
 
    `read -rsp` keeps all three values off the screen and out of history. The
    `=-` makes Vault read the value from stdin, so it never appears in the pod's
-   argv. The self-revoke kills the login token when the command ends.
+   argv — and that now applies to the login as well.
+
+   Until 2026-09-30 this script logged in with
+   `vault login -method=userpass username="$VU" password="$VP"`, putting the
+   password in the pod's argv, in a runbook whose own rule forbids exactly that.
+   `vault login` cannot be fixed by piping: it fails with
+   `Error authenticating: file descriptor 0 is not a terminal`. Writing to the
+   login endpoint instead accepts `password=-` like any other field. The
+   username is still in the path, and therefore in argv; that is accepted.
+
+   The self-revoke kills the login token when the command ends.
 
 4. Force the resync and confirm the hash *changed*:
 
