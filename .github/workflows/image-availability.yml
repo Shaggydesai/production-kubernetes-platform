@@ -4,8 +4,10 @@ name: image availability
 #
 # Upstream withdrawal has broken this project three times: dl.min.io started
 # returning HTTP 410, then quay.io/minio/minio began returning 401, then
-# quay.io/minio/mc did too - and mc could not be mirrored because no copy of it
-# existed anywhere. Each was discovered by a component failing, not by anyone
+# quay.io/minio/mc did too - and we hold no archive of the mc image, so the
+# chart's bucket Job cannot run. (The mc binary itself survives inside the
+# mirrored server image, verified 2026-09-30; an earlier version of this comment
+# asserted otherwise.) Each was discovered by a component failing, not by anyone
 # asking the question.
 #
 # A registry allowlist would have caught none of them: quay.io/minio was already
