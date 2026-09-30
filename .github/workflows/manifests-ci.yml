@@ -71,7 +71,7 @@ jobs:
           if grep -rhoE 'image:[[:space:]]*"?[^"[:space:]]+' /tmp/rendered/ \
                | sed -E 's/image:[[:space:]]*"?//' \
                | grep -E '^quay\.io/minio'; then
-            echo "quay.io/minio is unreachable (401 since Sept 2026) and mc cannot be mirrored"
+            echo "quay.io/minio is unreachable (401 since Sept 2026) - mirror the image to GHCR and pin it"
             exit 1
           fi
 
