@@ -169,6 +169,59 @@ jobs:
           sys.exit(1 if bad else 0)
           PY
 
+      # The claim "mc cannot be mirrored / no copy of it exists anywhere" is
+      # FALSE. /usr/bin/mc ships inside the MinIO server image mirrored to GHCR;
+      # only the quay.io/minio/mc IMAGE is unobtainable.
+      #
+      # It reached nine occurrences across four files, and TWO manual cleanups
+      # reported the repo clean while copies remained:
+      #   - the first grepped the exact phrasings already seen, and every author
+      #     had re-worded the claim
+      #   - the second was line-based, and in job-create-bucket.yaml the claim
+      #     wrapped as "no local copy exists" / "anywhere" over two lines
+      # So this strips comment markers and flattens each file before matching.
+      #
+      # This file is excluded by name: it must contain the banned wording in
+      # order to ban it. Not a loophole - the only way a check can state what it
+      # forbids.
+      - name: No file may claim mc cannot be mirrored
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import pathlib, re, sys
+          CLAIMS = [
+              r'(?:never|cannot|could not|can not) be mirrored',
+              r'impossible to mirror',
+              r'no (?:local )?copy[^.]{0,40}(?:exists?|existed) anywhere',
+              r'no (?:local )?copy of mc anywhere',
+          ]
+          SKIP_NAMES = {'manifests-ci.yml'}
+          EXTS = {'.yml', '.yaml', '.md', '.sh', '.txt'}
+          bad, scanned = [], 0
+          for p in sorted(pathlib.Path('.').rglob('*')):
+              if not p.is_file() or '.git' in p.parts or 'charts' in p.parts:
+                  continue
+              if p.suffix not in EXTS or p.name in SKIP_NAMES:
+                  continue
+              scanned += 1
+              lines = [re.sub(r'^\s*#\s?', '', ln)
+                       for ln in p.read_text(errors='replace').splitlines()]
+              flat = ' '.join(' '.join(lines).split())
+              for pat in CLAIMS:
+                  for m in re.finditer(pat, flat, re.I):
+                      bad.append((str(p), flat[max(0, m.start() - 70): m.end() + 30]))
+          for path, ctx in bad:
+              print(f"FAIL {path}")
+              print(f"     ...{ctx}...")
+          print(f"scanned {scanned} files, {len(bad)} violation(s)")
+          assert scanned > 0, "scanned nothing - the file glob is broken"
+          if bad:
+              print()
+              print("The mc BINARY ships inside the MinIO server image already mirrored")
+              print("to GHCR. Only the quay.io/minio/mc IMAGE is unobtainable.")
+          sys.exit(1 if bad else 0)
+          PY
+
   rules:
     name: promtool check rules
     runs-on: ubuntu-latest

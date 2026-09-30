@@ -1,9 +1,15 @@
 # Creates the buckets Velero needs.
 #
 # Replaces the chart's post-install Job, which used quay.io/minio/mc - an image
-# that now returns 401 to anonymous pulls and of which no local copy exists
-# anywhere, so unlike the server image it can never be mirrored. The chart Job
-# is suppressed by pinning all five of its gate keys empty in values.yaml.
+# that now returns 401 to anonymous pulls and of which we hold no archive, so
+# that Job cannot run. The mc *binary* survives: /usr/bin/mc ships inside the
+# server image mirrored to GHCR, verified 2026-09-30, so moving this Job onto mc
+# is possible. Tracked, not urgent - aws-cli here is proven working. An earlier
+# version of this comment asserted the opposite, which argued against the only
+# alternative that exists.
+#
+# The chart Job is suppressed by pinning all five of its gate keys empty in
+# values.yaml.
 #
 # It ran successfully on 2026-09-11 when quay still served it, then deleted
 # itself per its hook policy - so the breakage was invisible until someone

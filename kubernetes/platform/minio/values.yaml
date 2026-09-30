@@ -47,9 +47,12 @@ minio:
   existingSecret: minio-credentials
 
   # Deliberately empty. The chart creates buckets with a Job running
-  # quay.io/minio/mc, which is also 401 - and unlike the server image we have
-  # NO local copy of mc anywhere, so it can never be mirrored. Bucket creation
-  # therefore moved to templates/job-create-bucket.yaml, which uses aws-cli.
+  # quay.io/minio/mc, which is also 401, and we hold no archive of that image -
+  # so that Job cannot run. The mc *binary* is a separate question: /usr/bin/mc
+  # ships inside the server image already mirrored to GHCR, verified 2026-09-30.
+  # An earlier version of this comment asserted the opposite and was wrong.
+  # Bucket creation moved to templates/job-create-bucket.yaml, which uses
+  # aws-cli.
   #
   # This is the half that fixes a REBUILD. The ImagePullBackOff is the loud
   # half; this is the one that would have stalled a restore.
@@ -65,7 +68,7 @@ minio:
   #   if or .Values.buckets .Values.users .Values.policies
   #         .Values.customCommands .Values.svcaccts
   # so a chart bump that adds a default to ANY of them resurrects a Job whose
-  # image (quay.io/minio/mc) returns 401 and which we have no copy of. Pinning
+  # image (quay.io/minio/mc) returns 401 and of which we hold no archive. Pinning
   # all five makes that impossible instead of unlikely. Emptying `buckets`
   # alone was NOT enough - verified 2026-09-28, the Job still rendered.
   #
