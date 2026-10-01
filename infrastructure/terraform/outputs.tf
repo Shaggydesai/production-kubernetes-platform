@@ -27,10 +27,11 @@ output "ansible_inventory" {
     against an address nothing answers on.
   EOT
   value = templatefile("${path.module}/templates/inventory.yaml.tftpl", {
-    nodes                  = var.nodes
-    admin_user             = var.admin_user
-    control_plane_endpoint = var.control_plane_endpoint
-    pod_subnet             = "10.244.0.0/16"
-    service_subnet         = "10.96.0.0/12"
+    nodes                        = var.nodes
+    admin_user                   = var.admin_user
+    ansible_ssh_private_key_file = var.ansible_ssh_private_key_file
+    control_plane_endpoint       = var.control_plane_endpoint
+    pod_subnet                   = "10.244.0.0/16"
+    service_subnet               = "10.96.0.0/12"
   })
 }

@@ -41,8 +41,18 @@
 
 - name: Install Terraform
   ansible.builtin.apt:
-    name: terraform
+    name: "{{ 'terraform=' + terraform_cli_version if terraform_cli_version else 'terraform' }}"
     state: present
+    allow_downgrade: true
+
+# Without this, unattended-upgrades moves Terraform underneath a configuration
+# that has been validated against one version. Held even when no exact version
+# is pinned: the hold freezes whatever is installed, which closes the drift even
+# if terraform_cli_version is still empty.
+- name: Hold Terraform at that version
+  ansible.builtin.dpkg_selections:
+    name: terraform
+    selection: hold
 
 - name: Remove the downloaded key
   ansible.builtin.file:

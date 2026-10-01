@@ -87,6 +87,28 @@ resource "libvirt_cloudinit_disk" "node" {
     dns     = var.network_gateway
     search  = var.dns_domain
   })
+
+  # A node address outside network_cidr produces a guest that boots, applies its
+  # netplan without error and cannot route anywhere - libvirt's dnsmasq does not
+  # serve that subnet and the gateway is unreachable. It presents as "the cluster
+  # is broken" rather than as a configuration mistake.
+  #
+  # This is a precondition and not a `validation` block on var.nodes because a
+  # validation block cannot reference a second variable (network_cidr) until
+  # Terraform 1.9; required_version is >= 1.6. See variables.tf.
+  #
+  # The comparison derives each address's network number using the subnet's own
+  # prefix length and compares it with the subnet's. Checked against seven cases
+  # before being committed: .1, .136, .137 and .254 inside /24 pass; a wrong
+  # third octet, a wrong second octet and a different network all fail.
+  lifecycle {
+    precondition {
+      condition = cidrhost(var.network_cidr, 0) == cidrhost(
+        "${each.value.ip}/${split("/", var.network_cidr)[1]}", 0
+      )
+      error_message = "Node ${each.key} has IP ${each.value.ip}, which is outside network_cidr ${var.network_cidr}. The guest would boot and be unroutable."
+    }
+  }
 }
 
 # ---------------------------------------------------------------------------

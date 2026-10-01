@@ -2,3 +2,18 @@
 terraform_cli_install: true
 terraform_cli_keyring: /usr/share/keyrings/hashicorp-archive-keyring.gpg
 terraform_cli_repo_url: https://apt.releases.hashicorp.com
+
+# Exact apt version, e.g. "1.9.8-1". Empty installs whatever the repository
+# currently offers, which is how the host ends up on a Terraform newer than the
+# one the configuration was written against - the same drift that pinning and
+# holding kubeadm/kubelet/kubectl in kube_prereqs prevents.
+#
+# The hold below is applied either way, so an unpinned install cannot drift
+# AFTER it happens. Fill this in once, from the host that works:
+#
+#   dpkg-query -W -f='${Version}' terraform
+#
+# versions.tf requires >= 1.6, < 2.0.0. Note that a validation block cannot
+# reference a second variable below 1.9, which is why main.tf uses a
+# precondition - so 1.9+ is worth having, not required.
+terraform_cli_version: ""
