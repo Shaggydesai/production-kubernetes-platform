@@ -262,6 +262,96 @@ jobs:
           PY
           promtool check rules /tmp/rules/*.yaml
 
+  alertmanager:
+    name: amtool check-config and routing
+    runs-on: ubuntu-latest
+    # The live Alertmanager config is 50 lines of hand-edited YAML rendered by an
+    # ExternalSecret, and until now nothing validated it at all. A syntax error
+    # there does not fail a sync - Argo CD reports the ExternalSecret Synced and
+    # ESO reports SecretSynced, both truthfully - it fails inside Alertmanager,
+    # which keeps its previous config in memory and then cannot start at all on
+    # the next pod restart. Silent until the worst moment.
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned exactly. Should track the Alertmanager the cluster actually runs:
+      #   kubectl -n monitoring get statefulset alertmanager-kube-prometheus-stack-alertmanager \
+      #     -o jsonpath='{.spec.template.spec.containers[?(@.name=="alertmanager")].image}'
+      # A newer amtool can accept config the running version rejects, which
+      # would make this check worse than useless.
+      - name: Fetch amtool
+        run: |
+          set -euo pipefail
+          V=0.27.0
+          curl -fsSL -o /tmp/am.tgz \
+            "https://github.com/prometheus/alertmanager/releases/download/v${V}/alertmanager-${V}.linux-amd64.tar.gz"
+          tar -xzf /tmp/am.tgz --strip-components=1 \
+            -C /tmp "alertmanager-${V}.linux-amd64/amtool"
+          sudo install /tmp/amtool /usr/local/bin/
+
+      - name: Check the config and assert the dead-man's switch is wired
+        run: |
+          set -euo pipefail
+          SRC=kubernetes/platform/vault-config/externalsecret-alertmanager-config.yaml
+
+          python3 - "$SRC" <<'PY'
+          import pathlib, re, sys, yaml
+          doc = yaml.safe_load(pathlib.Path(sys.argv[1]).read_text())
+          cfg = doc["spec"]["target"]["template"]["data"]["alertmanager.yaml"]
+
+          # ESO's {{ .x }} placeholders are not URLs and amtool would reject them,
+          # so each is replaced with a syntactically valid dummy. That leaves the
+          # ROUTING and the structure as written, which is what we want checked.
+          names = sorted(set(re.findall(r"\{\{\s*\.(\w+)\s*\}\}", cfg)))
+          assert names, "no ESO placeholders found - extraction is reading the wrong field"
+          for n in names:
+              cfg = re.sub(r"\{\{\s*\." + n + r"\s*\}\}", f"https://example.invalid/{n}", cfg)
+          print("placeholders substituted:", names)
+          pathlib.Path("/tmp/am.yaml").write_text(cfg)
+
+          # The switch only works if Watchdog reaches a real receiver AND is
+          # re-sent often enough to be missed quickly. The root repeat_interval
+          # is 24h, which would make detection slower than the outage, so the
+          # route must override it. amtool validates syntax and routing but says
+          # nothing about cadence, hence this.
+          parsed = yaml.safe_load(cfg)
+          wd = [r for r in parsed["route"]["routes"]
+                if any('alertname = "Watchdog"' in m for m in r.get("matchers", []))]
+          assert len(wd) == 1, f"expected exactly 1 Watchdog route, found {len(wd)}"
+          assert wd[0]["receiver"] != "null", (
+              "Watchdog is routed to 'null' - the dead-man's switch is disabled, and "
+              "nothing outside this cluster can then report that alerting has stopped")
+          ri = wd[0].get("repeat_interval")
+          assert ri, "the Watchdog route must set its own repeat_interval, not inherit 24h"
+          unit, val = ri[-1], int(ri[:-1])
+          secs = val * {"s": 1, "m": 60, "h": 3600}[unit]
+          assert secs <= 600, f"Watchdog repeat_interval {ri} is too long to be a heartbeat"
+          print(f"Watchdog route: receiver={wd[0]['receiver']} repeat_interval={ri}")
+          PY
+
+          amtool check-config /tmp/am.yaml
+
+          # Assert routing with amtool's own engine rather than by re-reading the
+          # YAML, so this tests what Alertmanager would actually do.
+          DEST=$(amtool config routes test --config.file /tmp/am.yaml alertname=Watchdog)
+          echo "Watchdog routes to: ${DEST:-<nothing>}"
+          test -n "$DEST" || { echo "routes test produced no output"; exit 1; }
+          test "$DEST" != "null" || {
+            echo "Watchdog is routed to 'null' - the dead-man's switch is disabled."
+            echo "Nothing outside this cluster can then report that alerting has stopped."
+            exit 1
+          }
+
+          # And the other routes still go where they did, so wiring the switch
+          # cannot quietly divert real alerts.
+          for pair in "severity=critical:discord" "severity=warning:discord" \
+                      "severity=info:null" "alertname=InfoInhibitor:null"; do
+            labels=${pair%:*}; want=${pair##*:}
+            got=$(amtool config routes test --config.file /tmp/am.yaml "$labels")
+            echo "  $labels -> $got (want $want)"
+            test "$got" = "$want" || { echo "routing changed for $labels"; exit 1; }
+          done
+
   ansible:
     name: ansible-lint
     runs-on: ubuntu-latest
