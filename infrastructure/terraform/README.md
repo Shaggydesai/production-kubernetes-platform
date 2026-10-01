@@ -6,7 +6,9 @@ for why KVM, why Terraform, and why the subnet does not change.
 
 ## Host prerequisites
 
-Handled by `infrastructure/host/` (Ansible). If you are doing it by hand:
+Handled by `infrastructure/ansible/playbooks/kvm-host.yml` (roles `kvm_host`,
+`libvirt_pool`, `terraform_cli`, `host_no_sleep`), or `make host`. If you are
+doing it by hand:
 
 ```bash
 sudo apt install -y qemu-kvm libvirt-daemon-system virtinst \
@@ -38,11 +40,16 @@ points at a local copy. Guests are reachable in roughly a minute; cloud-init
 needs a few seconds after boot to install the guest agent.
 
 ```bash
-for ip in 192.168.75.136 192.168.75.137 192.168.75.138; do
-  ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
-      "$(terraform output -raw -json 2>/dev/null >/dev/null; echo sagar)@$ip" \
-      'hostname; ip -br a | grep -v LOOPBACK' || echo "$ip not up yet"
-done
+# Addresses and the login user both come from the outputs, so this does not go
+# stale when the nodes map or admin_user changes.
+terraform output -json ssh_commands \
+  | python3 -c 'import json,sys
+for c in json.load(sys.stdin): print(c)' \
+  | while read -r _ dest; do
+      ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "$dest" \
+          'hostname; ip -br a | grep -v LOOPBACK' \
+        || echo "$dest not up yet"
+    done
 ```
 
 ## Rebuild

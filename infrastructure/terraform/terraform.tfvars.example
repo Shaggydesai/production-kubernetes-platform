@@ -6,6 +6,14 @@
 admin_user     = "sagar"
 ssh_public_key = "ssh-ed25519 AAAAC3Nza... you@your-host"
 
+# The PRIVATE half of ssh_public_key above, if it is not your default SSH key.
+# It goes into the generated Ansible inventory. Leave it out and SSH uses its own
+# defaults and your agent, which is right when the key you installed IS your
+# default. inventory/production.yml pins ~/.ssh/ansible_ed25519, so if you use a
+# dedicated key, say so here or `make cluster` cannot connect.
+#
+# ansible_ssh_private_key_file = "~/.ssh/ansible_ed25519"
+
 # Recommended --------------------------------------------------------------
 
 # Point this at a local, checksum-verified copy of the Ubuntu 24.04 cloud

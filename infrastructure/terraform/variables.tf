@@ -142,6 +142,39 @@ variable "nodes" {
     condition     = length(distinct([for k, v in var.nodes : v.ip])) == length(var.nodes)
     error_message = "Two nodes share an IP address."
   }
+
+  # Without this, a nodes map containing only a control plane is accepted, and
+  # the generated inventory renders `workers: {hosts: null}`. Ansible then runs
+  # playbooks/cluster.yml's worker play against an empty group and reports
+  # success, so you get a one-node cluster that looks like it worked. Verified
+  # by rendering the template with a control-plane-only map.
+  validation {
+    condition     = length([for k, v in var.nodes : k if v.role == "worker"]) >= 1
+    error_message = "At least one node must have role = \"worker\". A control-plane-only map renders an empty 'workers' group and playbooks/cluster.yml silently skips the worker play."
+  }
+
+  # The IP-inside-network_cidr check cannot live here. A validation block may
+  # only reference its own variable until Terraform 1.9, and required_version is
+  # >= 1.6 - so it is a precondition on libvirt_cloudinit_disk.node in main.tf,
+  # which is where the address and the subnet actually meet.
+}
+
+variable "ansible_ssh_private_key_file" {
+  description = <<-EOT
+    Path to the PRIVATE half of ssh_public_key, written into the generated
+    Ansible inventory.
+
+    inventory/production.yml sets ansible_ssh_private_key_file, the generated
+    inventory/lab.yml did not, and `make cluster` uses lab.yml - so a build on a
+    host whose default key is not the one cloud-init installed fails at the first
+    SSH connection, with a permission error that looks like a guest problem.
+
+    Left empty the line is omitted entirely and SSH falls back to its own
+    defaults and any agent, which is correct when the installed key IS your
+    default key. Set it when it is not.
+  EOT
+  type        = string
+  default     = ""
 }
 
 variable "autostart_domains" {

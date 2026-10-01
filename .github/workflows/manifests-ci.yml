@@ -6,6 +6,7 @@ on:
     paths:
       - 'kubernetes/**'
       - 'infrastructure/ansible/**'
+      - 'infrastructure/terraform/**'
       - '.github/workflows/manifests-ci.yml'
   # No paths filter on pull_request, deliberately - same reason as
   # taskflow-api-ci.yml. A filtered workflow never starts on an unrelated PR, so
@@ -283,3 +284,130 @@ jobs:
       - name: Lint the roles
         working-directory: infrastructure/ansible
         run: ansible-lint --profile production
+
+  terraform:
+    name: terraform fmt, validate and render
+    runs-on: ubuntu-latest
+    # The Terraform in this repo has never been applied - the KVM migration is
+    # blocked on hardware - so until a real `apply` happens, these three checks
+    # are the only thing standing between "the HCL is written" and "the HCL
+    # works". fmt and validate need no credentials, no libvirt and no host, so
+    # there is no reason for them not to run on every change.
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned exactly, and to a 1.x: versions.tf requires >= 1.6, < 2.0.0, and
+      # a floor pin is not a pin. hashicorp/setup-terraform defaults to the
+      # newest release, which would let an upstream version change turn main red
+      # with nothing in this repo having changed.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: fmt
+        working-directory: infrastructure/terraform
+        run: terraform fmt -check -recursive -diff -no-color
+
+      # -backend=false because there is no backend to configure and we are not
+      # touching state. This still downloads the libvirt provider, which is what
+      # makes `validate` able to check resource arguments rather than only HCL
+      # syntax. The committed .terraform.lock.hcl pins it.
+      - name: init and validate
+        working-directory: infrastructure/terraform
+        run: |
+          terraform init -backend=false -input=false -no-color
+          terraform validate -no-color
+
+      # validate does not evaluate templatefile(), so a broken .tftpl passes it
+      # and fails at apply time - on a rebuild, which is the worst moment to
+      # find out. Both templates are rendered here and their output parsed as
+      # YAML, because both produce a file something else has to read: one is the
+      # Ansible inventory, the other is cloud-init's user-data, and a guest that
+      # boots with broken cloud-config is simply unreachable.
+      #
+      # `terraform console` prints a multi-line string as a heredoc (<<EOT ...
+      # EOT), NOT as a quoted escaped string. An earlier version of this step
+      # assumed the latter and would have failed on every run; the parser below
+      # handles both forms and was checked against three known-bad inputs -
+      # a control-plane-only nodes map, an unpropagated admin_user, and an empty
+      # render - each of which it correctly rejects.
+      - name: templates must render to valid YAML
+        working-directory: infrastructure/terraform
+        run: |
+          set -euo pipefail
+
+          cat > /tmp/assert_render.py <<'PY'
+          import json, sys, yaml
+
+          def hcl_string(raw):
+              lines = raw.splitlines()
+              while lines and not lines[0].strip():
+                  lines.pop(0)
+              # Never pass vacuously: an empty render must not parse as "fine".
+              assert lines, "terraform console produced no output - the render failed"
+              if lines[0].startswith("<<"):
+                  marker = lines[0][2:].strip()
+                  end = len(lines) - 1
+                  while end > 0 and lines[end].strip() != marker:
+                      end -= 1
+                  assert end > 0, f"no closing {marker} in console output"
+                  return "\n".join(lines[1:end])
+              return json.loads(raw.strip())
+
+          def load(path):
+              doc = yaml.safe_load(hcl_string(open(path).read()))
+              assert isinstance(doc, dict) and doc, f"{path} did not parse to a mapping"
+              return doc
+
+          which, path = sys.argv[1], sys.argv[2]
+          doc = load(path)
+
+          if which == "inventory":
+              kids = doc["all"]["children"]
+              cp = list(kids["control_plane"]["hosts"] or {})
+              wk = list(kids["workers"]["hosts"] or {})
+              print("  control_plane:", cp)
+              print("  workers      :", wk)
+              assert len(cp) == 1, f"expected exactly 1 control-plane host, got {cp}"
+              assert len(wk) >= 1, f"expected at least 1 worker host, got {wk}"
+              v = doc["all"]["vars"]
+              assert v["ansible_user"] == "ci", "admin_user did not reach the inventory"
+              assert v["ansible_python_interpreter"] == "/usr/bin/python3"
+          elif which == "userdata":
+              assert doc["hostname"] == "k8s-cp01", "hostname did not reach user-data"
+              keys = doc["users"][0]["ssh_authorized_keys"]
+              assert len(keys) == 1 and keys[0].startswith("ssh-ed25519 "), \
+                  f"ssh key did not survive templating: {keys!r}"
+              assert doc["ssh_pwauth"] is False, "password auth is not disabled"
+              print("  user:", doc["users"][0]["name"], "| key ok | pwauth off")
+          else:
+              sys.exit(f"unknown assertion set {which!r}")
+
+          print(f"  {which} renders and parses")
+          PY
+
+          echo "::group::inventory, no ansible key set"
+          terraform console -input=false <<'TF' > /tmp/inv.raw
+          templatefile("${path.module}/templates/inventory.yaml.tftpl", { nodes = var.nodes, admin_user = "ci", ansible_ssh_private_key_file = "", control_plane_endpoint = var.control_plane_endpoint, pod_subnet = "10.244.0.0/16", service_subnet = "10.96.0.0/12" })
+          TF
+          python3 /tmp/assert_render.py inventory /tmp/inv.raw
+          grep -q 'ansible_ssh_private_key_file' /tmp/inv.raw \
+            && { echo "key line emitted when the variable is empty"; exit 1; } || true
+          echo "::endgroup::"
+
+          echo "::group::inventory, ansible key set"
+          terraform console -input=false <<'TF' > /tmp/inv2.raw
+          templatefile("${path.module}/templates/inventory.yaml.tftpl", { nodes = var.nodes, admin_user = "ci", ansible_ssh_private_key_file = "/tmp/k", control_plane_endpoint = var.control_plane_endpoint, pod_subnet = "10.244.0.0/16", service_subnet = "10.96.0.0/12" })
+          TF
+          python3 /tmp/assert_render.py inventory /tmp/inv2.raw
+          grep -q 'ansible_ssh_private_key_file: /tmp/k' /tmp/inv2.raw \
+            || { echo "key line missing when the variable IS set"; exit 1; }
+          echo "::endgroup::"
+
+          echo "::group::cloud-init user-data"
+          terraform console -input=false <<'TF' > /tmp/ud.raw
+          templatefile("${path.module}/templates/user-data.yaml.tftpl", { hostname = "k8s-cp01", fqdn = "k8s-cp01.platform.internal", admin_user = "ci", ssh_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample ci@runner" })
+          TF
+          python3 /tmp/assert_render.py userdata /tmp/ud.raw
+          echo "::endgroup::"
