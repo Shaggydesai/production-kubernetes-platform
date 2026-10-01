@@ -321,12 +321,29 @@ jobs:
           assert wd[0]["receiver"] != "null", (
               "Watchdog is routed to 'null' - the dead-man's switch is disabled, and "
               "nothing outside this cluster can then report that alerting has stopped")
+          def secs(d):
+              return int(d[:-1]) * {"s": 1, "m": 60, "h": 3600}[d[-1]]
+
           ri = wd[0].get("repeat_interval")
           assert ri, "the Watchdog route must set its own repeat_interval, not inherit 24h"
-          unit, val = ri[-1], int(ri[:-1])
-          secs = val * {"s": 1, "m": 60, "h": 3600}[unit]
-          assert secs <= 600, f"Watchdog repeat_interval {ri} is too long to be a heartbeat"
-          print(f"Watchdog route: receiver={wd[0]['receiver']} repeat_interval={ri}")
+          assert secs(ri) <= 600, f"Watchdog repeat_interval {ri} is too long to be a heartbeat"
+
+          # Alertmanager's dispatcher flushes a group on a group_interval ticker
+          # and only re-notifies if repeat_interval has elapsed AT that tick. If
+          # the two are equal the tick lands just before the window opens, skips,
+          # and waits another full cycle - measured 2026-10-01 as ~14 minutes of
+          # silence on a 5m/5m pair, which is inside the receiving end's 20m
+          # tolerance by about a minute. So the ticker must be strictly faster.
+          gi = wd[0].get("group_interval")
+          assert gi, (
+              "the Watchdog route must set its own group_interval. Inheriting the "
+              "root's makes it equal to repeat_interval, and the flush tick then "
+              "races the repeat window")
+          assert secs(gi) < secs(ri), (
+              f"group_interval {gi} must be strictly less than repeat_interval {ri}, "
+              "or the heartbeat cadence becomes erratic")
+          print(f"Watchdog route: receiver={wd[0]['receiver']} "
+                f"group_interval={gi} repeat_interval={ri}")
           PY
 
           amtool check-config /tmp/am.yaml
